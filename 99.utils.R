@@ -82,9 +82,12 @@ convert_intensities <- function(sat_EXIO) {
   exio_hr_f_intm_ordered = reorder_countries_to_FABIO(exio_hr_f_int)
   
   # Finally, calculate FABIO-based EXIO energy and labor use matrices for agri-food sects
-  FABIO_en = FABIO_exio_x %*% Diagonal(x=exio_en_intm_ordered)
-  FABIO_hr_m = FABIO_exio_x %*% Diagonal(x=exio_hr_m_intm_ordered)
-  FABIO_hr_f = FABIO_exio_x %*% Diagonal(x=exio_hr_f_intm_ordered)
+  FABIO_en = FABIO_x_in_EXIO %*% Diagonal(x=exio_en_intm_ordered)
+  FABIO_hr_m = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_m_intm_ordered)
+  FABIO_hr_f = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_f_intm_ordered)
+  
+  # TODO: FABIO_x_in_EXIO need to be checked again for computing correct order, 
+  # but looks ok for now since this will be run after convert_mass_vecs() is called.
   
   return(list(sat_en_FAB = FABIO_en, 
               sat_hr_m_FAB = FABIO_hr_m, 

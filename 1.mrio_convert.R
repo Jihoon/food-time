@@ -4,15 +4,9 @@ library(Matrix)
 
 source("99.utils.R")
 
+#### 1. Conversions to FABIO mass vector (123) to EXIO classifications (200, still mass) ####
 
-# Derive EXIO indirect satellites for nonfood sectors
-EXIO_L = readRDS(file = paste0("data/EXIO_L_", year, "_", type, ".rds"))
-
-
-
-#### Conversions to FABIO mass vector to EXIO classifications (still mass) ####
-
-# Prepare a conversion matrix from FABIO to EXIO sector mapping (for 187 countries)
+# Prepare a conversion mapping (qualitative) from FABIO to EXIO sector mapping (for 187 countries)
 p_fabio_exio = block_diag_repeat(as.matrix(prod_map), nrow(FABIO_reg)) 
   
 convert_mass_vecs <- function (exio_vec_monetary=EXIO_x, fabio_vec_mass=FABIO_x) {
@@ -38,18 +32,26 @@ convert_mass_vecs <- function (exio_vec_monetary=EXIO_x, fabio_vec_mass=FABIO_x)
   mat_map = Diagonal(x=p_inv) %*% mat_map
   
   # Multiply diag(FABIO_x) and mat_map to get a mass vector in EXIO sector classification
-  FABIO_exio_x = Diagonal(x=fabio_vec_mass) %*% mat_map
-  v_mass = colSums(FABIO_exio_x) # mass vec in EXIO sectors (187 countries = len 37400)
+  FABIO_mass_in_EXIO = Diagonal(x=fabio_vec_mass) %*% mat_map
+  v_mass = colSums(FABIO_mass_in_EXIO) # mass vec in EXIO sectors (187 countries = len 37400)
   
   # Aggregate FABIO regions to EXIO regions and reorder
   exio_mass = reorder_countries_to_EXIO(v_mass) # mass vec in EXIO sec/reg (9800)
 
-  return(exio_mass)
+  return(list(exio_mass, FABIO_mass_in_EXIO))
 }
 
-exio_mass_x = convert_mass_vecs()
+l = convert_mass_vecs()
+exio_mass_x = l[[1]]  # EXIO mass vector (len 9800)
+FABIO_x_in_EXIO = l[[2]]  # EXIO mass vector (len 9800)
+rm(l)
 
 # TEST: Validate sum(FABIO_x)-sum(FABIO_x[rowSums(p_fabio_exio)==0]) == sum(exio_mass) == sum(v_mass)
+
+
+
+
+#### 2. Convert EXIO energy/labor satellites (and intensities) to FABIO classification ####
 
 # Make EXIO satellite accounts in the same formatting 
 dir_sat_exio = list(
@@ -57,44 +59,31 @@ dir_sat_exio = list(
   sat_hr_m = lab_male,
   sat_hr_f = lab_female) 
 
-
-# Get direct and indirect energy/labor (hr) satellites in FABIO sectors
+# Get direct energy/labor (hr) satellites in FABIO sectors
 # dim = (23001, 37400), which can be row/column-summed to get vectors.
 dir_sat_FAB = convert_intensities(dir_sat_exio)
-indir_sat_FAB = convert_intensities(indir_sat_exio)
-
 
 # FABIO satellite account totals (intensities per tonne of product)
 FABIO_en_int_d = rowSums(dir_sat_FAB$sat_en_FAB) / FABIO_x 
 FABIO_hr_m_int_d = rowSums(dir_sat_FAB$sat_hr_m_FAB) / FABIO_x 
 FABIO_hr_f_int_d = rowSums(dir_sat_FAB$sat_hr_f_FAB) / FABIO_x 
 
-FABIO_en_int_i = rowSums(indir_sat_FAB$sat_en_FAB) / FABIO_x 
-FABIO_hr_m_int_i = rowSums(indir_sat_FAB$sat_hr_m_FAB) / FABIO_x 
-FABIO_hr_f_int_i = rowSums(indir_sat_FAB$sat_hr_f_FAB) / FABIO_x 
-
 # Replace NaN and Inf with 0
 FABIO_en_int_d[!is.finite(FABIO_en_int_d)] = 0
 FABIO_hr_m_int_d[!is.finite(FABIO_hr_m_int_d)] = 0
 FABIO_hr_f_int_d[!is.finite(FABIO_hr_f_int_d)] = 0
 
-FABIO_en_int_i[!is.finite(FABIO_en_int_i)] = 0
-FABIO_hr_m_int_i[!is.finite(FABIO_hr_m_int_i)] = 0
-FABIO_hr_f_int_i[!is.finite(FABIO_hr_f_int_i)] = 0
-
 # Save FABIO-based EXIO satellite accounts and intensities
 l_int = list(
   en_int_d = FABIO_en_int_d,
   hr_m_int_d = FABIO_hr_m_int_d,
-  hr_f_int_d = FABIO_hr_f_int_d,
-  
-  en_int_i = FABIO_en_int_i,
-  hr_m_int_i = FABIO_hr_m_int_i,
-  hr_f_int_i = FABIO_hr_f_int_i
+  hr_f_int_d = FABIO_hr_f_int_d
 )
 saveRDS(l_int, file = paste0("data/FABIO_exio_satellites_", year, ".rds"))
 
 
+
+#### 3. Calculate consumption-based calorie/protein footprints ####
 
 # Calculate consumption-based matrices
 FABIO_x_hh = FABIO_L %*% FABIO_y_hh
@@ -110,8 +99,11 @@ coeff_pro <- fread(file.path(FABIO_path,"nutrient_coefficients_protein.csv")) %>
   # concatenate the vector 187 times 
   slice(rep(1:n(), times = nrow(FABIO_reg)))
 
+# Consumption total
 FABIO_y_hh_cal <- Matrix::Diagonal(x=coeff_cal$kcal_per_kg) %*% FABIO_y_hh * 1000 # kcal
 FABIO_y_hh_pro <- Matrix::Diagonal(x=coeff_pro$protein_per_kg) %*% FABIO_y_hh * 1000 # g
+
+# Production total
 FABIO_x_hh_cal <- Matrix::Diagonal(x=coeff_cal$kcal_per_kg) %*% FABIO_x_hh * 1000 # kcal
 FABIO_x_hh_pro <- Matrix::Diagonal(x=coeff_pro$protein_per_kg) %*% FABIO_x_hh * 1000 # g
 
@@ -124,16 +116,21 @@ df_stat = data.frame(
 
 
 
-#### Energy and Labor footprint ####
-energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh 
+#### 4. Energy and Labor footprint ####
+
+# Total per country
+energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
+# Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
 hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
 hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr 
+
+colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
 
 # Country-wise footprint 
 library(gt)
 consumption = "food"
 country = "KOR"
-extension = "hr_m_int_d" #"en_int_d"  # "en_int_d", "hr_f_int_d"
+extension = "hr_m_int_d" #"en_int_d", "hr_f_int_d"
 
 for (country in regions$iso3c) {
   
@@ -164,14 +161,31 @@ for (country in regions$iso3c) {
   mat <- matrix(0, nrow=nrreg, ncol = nrreg, byrow=TRUE)
   rownames(mat) <- colnames(mat) <- sort(regions$iso3c)
   
-  # Calculate footprints
-  FP <- t(t(MP) * as.vector(as.matrix(Y_country[, consumption]))) # <= dim (23001x23001)
+  # Calculate footprints (energy & labor hr)
+  country_consump = as.vector(as.matrix(Y_country[, consumption]))
+  FP <- t(t(MP) * country_consump) # <= dim (23001x23001)
   colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
   FP <- as(FP, "TsparseMatrix")
-  # if nutri="calories", value has Mcal, for "protein", kg protein
+  
+  x_country = t(t(FABIO_L) * country_consump) # mass flows
+  # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
+  FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
+  FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
+  colnames(FP_cal) <- rownames(FP_cal) <- colnames(FP_pro) <- rownames(FP_pro) <- paste0(io$iso3c, "_", io$item)
+  FP_cal <- as(FP_cal, "TsparseMatrix")
+  FP_pro <- as(FP_pro, "TsparseMatrix")
+  
+  cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
+  pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
+  
   results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
-                        value =FP@x, 
-                        value_pcap = FP@x / pop * 1000) # kcal or g-protein per capita
+                        value = FP@x, # M.hr
+                        value_pcap = FP@x / pop * 1e6, # hr/cap (for labor)
+                        cal = FP_cal@x,
+                        cal_pcap = FP_cal@x / pop, # kcal per capita
+                        pro = FP_pro@x,
+                        pro_pcap = FP_pro@x / pop  # g-protein per capita
+                        ) 
   results[,`:=`(country_consumer = country,
                 year = year,
                 indicator = extension,
@@ -185,20 +199,19 @@ for (country in regions$iso3c) {
                 continent_origin = regions$continent[match(results$country_origin, regions$iso3c)])]
   
   results$continent_origin[results$country_origin==country] <- country
-  # 
-  # results = results %>%
-  #   # Remove "Live animals" from the nutrient flows
-  #   filter(group_origin != "Live animals")
+  
+  # Remove "Live animals" from the nutrient flows
+  # CHECK: Need to be in energy/labor footprints?
+  results = results %>%
+    filter(group_origin != "Live animals")
   
   # print(paste(country, "ratio of FD vs. production:", 
   #             round(sum(as.matrix(Y_country)[, consumption]) / sum(results$value),4)))
   
   data_tot <- results %>%
-    # mutate(group = paste(group_origin, continent_origin, sep = "_")) %>%
-    # mutate(group = paste(group_origin, country_origin, sep = "_")) %>%
     group_by(item_target, country_origin) %>%
     filter(value != 0) %>%
-    summarise(value = round(sum(value))) %>%
+    summarise(value = (sum(value))) %>%
     spread(country_origin, value, fill = 0) %>% # Al
     # Add a row with column sums
     ungroup() %>%
