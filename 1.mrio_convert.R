@@ -118,7 +118,7 @@ df_stat = data.frame(
 
 #### 4. Energy and Labor footprint ####
 
-# Total per country
+# Total production-based footprint per country
 energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
 # Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
 hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
@@ -126,7 +126,7 @@ hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr
 
 colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
 
-# Country-wise footprint 
+# Country-wise consumption-based footprint 
 library(gt)
 consumption = "food"
 country = "KOR"
@@ -167,6 +167,7 @@ for (country in regions$iso3c) {
   colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
   FP <- as(FP, "TsparseMatrix")
   
+  # Calculate calorie & protein production/consumption 
   x_country = t(t(FABIO_L) * country_consump) # mass flows
   # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
   FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
