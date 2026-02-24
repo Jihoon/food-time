@@ -69,7 +69,7 @@ l_int_d <- lapply(dir_sat_FAB, function(d) {
   v[!is.finite(v)] = 0
   return (v) 
 })
-names(l_int_d) <- c("en_int_d", "hr_m_int_d", "hr_f_int_d")
+names(l_int_d) <- c("en", "hr_m", "hr_f")
 
 # # # Alternative way: directly calculate intensities by summing the satellite accounts and dividing by FABIO_x (mass vector in FABIO classification))
 # # FABIO satellite account totals (intensities per tonne of product)

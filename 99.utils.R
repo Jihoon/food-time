@@ -85,6 +85,7 @@ convert_intensities <- function(sat_EXIO) {
   FABIO_en = FABIO_x_in_EXIO %*% Diagonal(x=exio_en_intm_ordered)
   FABIO_hr_m = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_m_intm_ordered)
   FABIO_hr_f = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_f_intm_ordered)
+  # This chuck doesn't work for (indirect) matrix satellites, since Diagonal() expects a vector.
   
   # TODO: FABIO_x_in_EXIO need to be checked again for computing correct order, 
   # but looks ok for now since this will be run after convert_mass_vecs() is called.

@@ -8,18 +8,21 @@
 # which can be good enough.
 
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
+fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
 
-energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
-# Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
-hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
-hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr 
-
-colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
+# energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
+# # Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
+# hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
+# hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr 
+# 
+# colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
 
 # Country-wise consumption-based footprint 
 library(gt)
 
-l_int = readRDS(file = paste0("data/FABIO_exio_satellites_", year, ".rds"))
+# Direct food-sector footprint
+l_int = readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
+# l_int = readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
 consumption = "food"
 country = "KOR"
