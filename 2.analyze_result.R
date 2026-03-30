@@ -1,5 +1,8 @@
 #### Result analysis ####
 
+# Population
+library(gt)
+data(countrypops)
 
 #### 1. Energy and Labor footprint ####
 
@@ -7,8 +10,291 @@
 # By taking Diagonal(), we preserve the origin information in the intensity vectors. Target info is lost.
 # which can be good enough.
 
+
+# Direct food-sector footprint
+l_int_d = readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
+l_int_i = readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
+
+# Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
 fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
+
+# Validate: find the biggest cell from fp_food[[2]] and check if it corresponds to expected source and destination
+largest_cell_index = which(fp_food[[2]] == max(fp_food[[2]]), arr.ind = TRUE)
+print(paste("Largest cell in fp_food[[2]] is at row", largest_cell_index[1], "and column", largest_cell_index[2]))
+print(paste("This corresponds to country", io[largest_cell_index[1],c("iso3c", "item")], "and sector", regions$area[largest_cell_index[2]]))
+
+# Debug: Find a country block for KIR and get the ten biggest cell values in fp_food[[2]] for that block and show their product and destination countries
+kir_block_indices = which(io$iso3c == "KIR")
+kir_block_values = fp_food[[2]][kir_block_indices, ]
+kir_block_largest_indices = order(kir_block_values, decreasing = TRUE)[1:10]
+print("Top 10 largest cells in KIR block of fp_food[[2]]:")
+for (index in kir_block_largest_indices) {
+  row_col = arrayInd(index, dim(kir_block_values))
+  print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", kir_block_values[index]))
+  print(paste("This corresponds to product", io[kir_block_indices[row_col[1]], c("iso3c", "item")], "and destination country", regions$area[row_col[2]]))
+}
+
+# Debug: Find a country block for ISL and get the ten biggest cell values in fp_food[[2]] for that block and show their product and destination countries
+isl_block_indices = which(io$iso3c == "ISL")
+isl_block_values = fp_food[[2]][isl_block_indices, ]
+isl_block_largest_indices = order(isl_block_values, decreasing = TRUE)[1:10]
+print("Top 10 largest cells in ISL block of fp_food[[2]]:")
+for (index in isl_block_largest_indices) {
+  row_col = arrayInd(index, dim(isl_block_values))
+  print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", isl_block_values[index]))
+  print(paste("This corresponds to product", io[isl_block_indices[row_col[1]], c("iso3c", "item")], "and destination country", regions$area[row_col[2]]))
+}
+
+
+
+# Aggregate all at country level ####
+# fp_food and fp_nonfood lists have three large matrices each, where rows are multiples of 187 (number of countries).
+# For each matrix, make partial row sums by adding every 187 rows. This will give us a matrix of dimension (187 x 187), where rows are origin countries and columns are target countries.
+
+agg_country_footprint <- function(mat) {
+  mat_country = matrix(0, nrow=nrreg, ncol=nrreg)
+  nsect = dim(mat)[1]/nrreg
+  print(paste("Aggregating footprint matrix with", nsect, "sectors per country..."))
+  
+  for (i in 1:nrreg) {
+    mat_country[i, ] = colSums(mat[((i-1)*nsect+1):(i*nsect), ])
+  }
+  rownames(mat_country) = colnames(mat_country) = regions$iso3c
+  return(mat_country)
+}
+
+l_food_country = lapply(fp_food, agg_country_footprint)
+l_nonfood_country = lapply(fp_nonfood, agg_country_footprint)
+
+# Validate: sum(l_food_country[[i]]) == sum(fp_food[[i]])
+
+# Validate: find the ten biggest cell from l_food_country[[2]] and check source and destination.
+largest_cells_indices = order(l_food_country[[2]], decreasing = TRUE)[1:10]
+print("Top 10 largest cells in l_food_country[[2]]:")
+for (index in largest_cells_indices) {
+  row_col = arrayInd(index, dim(l_food_country[[2]]))
+  print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", l_food_country[[2]][index]))
+  print(paste("This corresponds to origin country", rownames(l_food_country[[2]])[row_col[1]], "and target country", colnames(l_food_country[[2]])[row_col[2]]))
+}
+
+# Validate: find the ten biggest off-diagonal cell from l_food_country[[2]] and check source and destination.
+largest_offdiag_indices = order(l_food_country[[2]][!diag(nrow(l_food_country[[2]]))], decreasing = TRUE)[1:10]
+print("Top 10 largest off-diagonal cells in l_food_country[[2]]:")
+for (index in largest_offdiag_indices) {
+  row_col = arrayInd(index, dim(l_food_country[[2]]))
+  if (row_col[1] != row_col[2]) {
+    print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", l_food_country[[2]][index]))
+    print(paste("This corresponds to origin country", rownames(l_food_country[[2]])[row_col[1]], "and target country", colnames(l_food_country[[2]])[row_col[2]]))
+  }
+}
+
+
+
+# Domestic/import/export summary by country ####
+
+# For each of 187 countries, make summarized footprints of domestic, imported, and exported.
+# Diagonal elements of the matrices give the domestic footprint, while off-diagonal row elements give the exported footprint for the row country, and off-diagonal column elements give the imported footprint for the column country.
+country_summary <- function(mat) {
+  df = data.frame(
+    country = regions$iso3c,
+    domestic = diag(mat),
+    export = rowSums(mat) - diag(mat),
+    import = colSums(mat) - diag(mat)
+  )
+  
+  # Import population data and calculate per capita footprints
+  pop_data = subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population)
+  df = df %>% left_join(pop_data, by = c("country" = "iso3c")) %>%
+    # TJ to MJ, M.hr to hr, and then per capita (MJ/cap or hr/cap)
+    mutate(domestic_per_capita = domestic / population *1e6,
+           export_per_capita = export / population*1e6,
+           import_per_capita = import / population*1e6) 
+  
+  return(df)
+}
+
+summary_food = lapply(l_food_country, country_summary)
+summary_nonfood = lapply(l_nonfood_country, country_summary)
+
+# Make per capita labor hour footprints daily by dividing by 365
+for (i in names(summary_food[2:3])) {
+  summary_food[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food[[i]]
+  # summary_nonfood[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood[[i]]
+}
+
+# Stack vertically all elements in each list after adding a column "type" filled with the name the element
+summary_food_df = bind_rows(lapply(names(summary_food), 
+                                   function(x) summary_food[[x]] %>% mutate(type = x))) %>%
+    drop_na() 
+summary_nonfood_df = bind_rows(lapply(names(summary_nonfood), 
+                                      function(x) summary_nonfood[[x]] %>% mutate(type = x)))%>%
+    drop_na() 
+
+# Order of domestic hours (by female)
+sum_ord = (summary_food_df %>%   
+    filter(type %in% c("hr_f")) %>% 
+    group_by(country) %>% 
+    summarise(d = sum(domestic_per_capita)) %>% 
+    arrange(-d))$country
+
+# Make summary_food_df and summary_nonfood_df in long format for plotting
+summary_food_df_long = summary_food_df %>%
+  select(-(domestic:population)) %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"), 
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type, 
+                                 levels = c("preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
+                                            "preparation_econ", 
+                                            "export_per_capita", "import_per_capita", "domestic_per_capita")))
+summary_nonfood_df_long = summary_nonfood_df %>%
+  select(-(domestic:population)) %>%
+  filter(type %in% c("hr_m", "hr_f")) %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"), 
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type, levels = c("export_per_capita", "import_per_capita", "domestic_per_capita")))
+
+
+# Vertically stack df_ghd_gender to summary_food_df_long, and then plot again with the same function plot_countries. This will add the non-economic food time to the existing labor footprint
+summary_food_df_long_with_ghd = bind_rows(summary_food_df_long, df_ghd_combined) %>%
+  arrange(country, type, footprint_type) %>%
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type, 
+                                 levels = c("preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
+                                            "preparation_econ", 
+                                            "export_per_capita", "import_per_capita", "domestic_per_capita")))
+
+# Plot the results (all countries)
+
+# Factor inputs (labor + energy)
+# Have three main colors for footprint_type; and two alpha values for type (hr_m and hr_f)
+# "export_per_capita" is placed on top of "domestic_per_capita" for each type.
+p_hr_f = plot_countries(summary_food_df_long_with_ghd %>% filter(type %in% c("hr_f")),
+               "Daily time footprint per capita (hr/cap/day)",
+               paste0("Female time footprint per capita by country (", year, ")"))
+
+p_hr_m = plot_countries(summary_food_df_long_with_ghd %>% filter(type %in% c("hr_m")),
+               "Daily time footprint per capita (hr/cap/day)",
+               paste0("Male time footprint per capita by country (", year, ")"))
+               
+p_en = plot_countries(summary_food_df_long %>% filter(type %in% c("en")),
+               "Energy footprint per capita (GJ/cap/yr)",
+               paste0("Energy footprint per capita by country (", year, ")"))
+
+# Stack data from df_ghd_gender to the labor footprint plots by gender
+# df_ghd_gender has two columns "maleTotalHours" and "femaleTotalHours" which are the total hours spent on food-related activities per capita per day by activity.
+# Add these hours to the existing bars in p_hr_f and p_hr_m, with different alpha values for different activities (growth_collection, processing, preparation).
+p_hr_f = p_hr_f + ylim(-1, 3.5) 
+p_hr_m = p_hr_m + ylim(-1, 3.5) 
+
+
+# Combine three panels vertically with patchwork and have only one shared x-axis 
+library(patchwork)
+p_combined  = p_hr_f / p_hr_m + plot_layout(guides = "collect") & theme(
+    legend.position = "top",
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+# keep x labels only on bottom panel
+p_combined[[2]] <- p_combined[[2]] +
+  theme(axis.text.x = element_text(angle=90, hjust=1),
+        axis.ticks.x = element_line())
+print(p_combined)
+
+
+# Plot countries with non-econ obs
+
+# See only the countries with non.econ observations
+partial_cty = summary_food_df_long_with_ghd %>% 
+  filter(footprint_type == "preparation_non.econ") %>% pull(country) %>% unique()
+partial_ord = (summary_food_df_long_with_ghd %>% filter(country %in% partial_cty) %>%
+                 filter(type %in% c("hr_f"), footprint_type != "import_per_capita") %>%
+                 group_by(country) %>% 
+                 summarise(d = sum(per_capita_value, na.rm=TRUE)) %>% 
+                 arrange(-d))$country
+a = summary_food_df_long_with_ghd %>% filter(country %in% partial_cty) %>%
+  mutate(country = factor(country, levels = partial_ord)) %>% 
+  arrange(country)
+p1 = plot_countries(a %>% filter(type %in% c("hr_f")), "Female time footprint per capita (hr/day)", "")+ ylim(-1, 3.5) 
+p2 = plot_countries(a %>% filter(type %in% c("hr_m")), "Male time footprint per capita (hr/day)", "")+ ylim(-1, 3.5) 
+p3 = plot_countries(a %>% filter(type %in% c("en")), "Energy footprint per capita (GJ/yr)", "")
+
+p_combined_partial  = p1 / p2 + plot_layout(guides = "collect") & theme(legend.position = "top",
+                                                                        axis.text.x = element_blank(),
+                                                                        axis.ticks.x = element_blank()
+)
+p_combined_partial[[2]] <- p_combined_partial[[2]] +
+  theme(axis.text.x = element_text(angle=90, hjust=1),
+        axis.ticks.x = element_line())
+print(p_combined_partial)
+
+# Save it to a PDF
+ggsave(paste0("results/footprint_all_countries.pdf"), p_combined, width = 18, height = 12)
+ggsave(paste0("results/footprint_partial_countries.pdf"), p_combined_partial, width = 18, height = 12)
+
+
+
+
+
+# Nutrient plotting ####
+df_nutri = list("kcal" = country_summary(agg_country_footprint(FABIO_y_hh_cal)),
+                "protein" = country_summary(agg_country_footprint(FABIO_y_hh_pro))
+)
+
+for (i in 1:length(df_nutri)) {
+  df_nutri[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 1e6 / 365)) -> df_nutri[[i]]
+}
+
+summary_kcal_df_long = df_nutri[["kcal"]] %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"), 
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type, levels = c("export_per_capita", "import_per_capita", "domestic_per_capita")))
+summary_pro_df_long = df_nutri[["protein"]] %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"), 
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type, levels = c("export_per_capita", "import_per_capita", "domestic_per_capita")))
+
+p_kcal = plot_countries(summary_kcal_df_long, "Daily kcal supply per capita (kcal/cap/day)", "kcal")
+p_protein = plot_countries(summary_pro_df_long, "Daily protein supply per capita (g/cap/day)", "protein")
+
+# library(ggplot2)
+# # Labor hours
+# ggplot(summary_food_df %>% filter(type %in% c("hr_m", "hr_f")) %>%
+#          # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
+#           mutate(country = factor(country, levels = sum_ord)),
+#        aes(x=country, y=domestic_per_capita, fill=type)) +
+#   geom_bar(stat="identity", position="stack") +
+#   labs(x="Country (ISO3)", y="Daily time footprint per capita (hr/cap/day)", alpha="gender",
+#        title=paste0("Food-related time footprint per capita by country (", year, ")")) +
+#   theme_minimal() +
+#   theme(legend.position = "top") +
+#   # Add alpha values for genders
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+#   # Tilt x-axis labels
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+# 
+#   # Add import_per_capita values as negative y axis bars by gender
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
+#            aes(x=country, y=-import_per_capita, fill=type), stat="identity", position="stack") +
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+# 
+#   # Stack export_per_capita values as positive y axis bars by gender
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
+#            aes(x=country, y=export_per_capita, fill=type), stat="identity", position="stack") +
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+#   
+#   labs(fill="hours by gender", title=paste0("Food-related time footprint per capita by country (", year, ")\n(positive: domestic+export, negative: import)"))
+  
+
+
 
 # energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
 # # Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
@@ -18,13 +304,8 @@ fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
 # colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
 
 # Country-wise consumption-based footprint 
-library(gt)
 
-# Direct food-sector footprint
-l_int = readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
-# l_int = readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
-
-consumption = "food"
+consumption = "food" # FABIO FD category
 country = "KOR"
 extension = "hr_m_int_d" #"en_int_d", "hr_f_int_d"
 
@@ -176,10 +457,6 @@ mat_cons_net[mat_cons_net < 3e9] <- 0
 
 
 # Look into individual countries
-
-# Population
-library(gt)
-data(countrypops)
 
 pop_y = subset(countrypops, year == yr) %>%
   select(iso3c = country_code_3, pop = population)
@@ -354,6 +631,5 @@ df_loss = prod_cty %>% left_join(cons_cty, by="iso3c") %>%
   select(iso3c, dom_consump, dom_consumption) %>%
   mutate(loss_perc = (dom_consump - dom_consumption) / dom_consump * 100) %>%
   arrange(desc(loss_perc))
-
 
 

@@ -1,17 +1,27 @@
 # Re-order the EXIO intensity vectors (9800) to match FABIO region order based on FABIO_reg mapping
-reorder_countries_to_FABIO <- function(int_vector) {
+reorder_countries_to_FABIO <- function(int_vector, direction=2) {
   # Change just the region ordering from EXIO to FABIO
   # Wx regions' values simply pasted to all FABIO countries within the region 
-  n_sect = 200
-  n_countries_EXIO = 49
-  n_countries_FABIO = 187
+  # direction: 1 for row-wise, 2 for column-wise (default)
+  
+  n_sect = length(EXIO_sect) 
+  n_countries_EXIO = n_reg_EXIO
+  n_countries_FABIO = nrreg
   
   # # Make an index vector by repeating 200 times
   # exio_reg_idx = rep(1:n_countries, each=n_sect)
   
-  if (!(9800 %in% dim(int_vector))) {
-    stop("Input vector length must be 9800 (49 EXIO regions x 200 sectors).")
+  # Check if any dimensional length of int_vector is multiples of n_countries_EXIO
+  if (!any(dim(int_vector) %% n_countries_EXIO == 0)) {
+    stop("Input vector length must be a multiple of 49 EXIO regions.")
   }
+  
+  # Find that multiple to determine the number of sectors (n_sect) in the input vector
+  if (direction == 1) {
+    n_sect = dim(int_vector)[1] / n_countries_EXIO 
+    int_vector = t(int_vector) # Transpose to make it column-wise for easier processing
+  } 
+  print(paste("Input vector has", n_sect, "sectors per EXIO region."))
   
   # If input is a vector of length 9800
   if (min(dim(int_vector))<2) {
@@ -33,6 +43,12 @@ reorder_countries_to_FABIO <- function(int_vector) {
       # Flatten back to original vector shape
       data_reordered[i, ] <- as.vector(t(M_reordered)) # Length 37400 = 187 countries * 200 sectors
     }
+
+    data_reordered <- as(data_reordered, "CsparseMatrix") # Convert to sparse matrix format to save memory
+  }
+  
+  if (direction == 1) {
+    data_reordered = t(data_reordered) # Transpose back to original orientation
   }
   
   return(data_reordered)
@@ -167,3 +183,55 @@ sparsity <- function(mat) {
   nnz <- sum(mat != 0, na.rm = TRUE)
   1 - nnz / length(mat)
 }
+
+
+# Result / Analysis
+
+plot_countries <- function(df, ylabel, maintitle) {
+
+  c_scheme = c("domestic_per_capita"="#1f77b4", "export_per_capita"="#2ca02c", "import_per_capita"="#ff7f0e")  
+  # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
+  if (!"type" %in% colnames(df)) { # Nutrient
+    part_negative = "export_per_capita"
+    scale_factor = 1
+  } else if (df$type[1] %in% c("hr_m", "hr_f")) { # Labor footprint
+    part_negative = "import_per_capita"
+    scale_factor = 1
+    c_scheme = c(c_scheme,
+                 "preparation_econ" = "#8610ca",
+                 "preparation_non.econ" = "#ffa6a6",
+                 "processing_non.econ" = "#fc4a4a",
+                 "growth_collection_non.econ" = "#ce0303")
+    print("Plotting labor footprint with negative import values") 
+  } else {  # Energy footprint or other types of footprints, default to negative import values
+    part_negative = "export_per_capita"
+    scale_factor = 1e3
+  }
+  
+  # Get first work before "_" of part_negative to determine the type of footprint for labeling
+  neg_type = strsplit(part_negative, "_")[[1]][1]
+  pos_type = ifelse(neg_type == "import", "export", "import")
+  
+  g = ggplot(df %>% 
+               filter(footprint_type != part_negative),
+             aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type)) +
+    # When bars are stacked, make sure that "domestic_per_capita" is at the bottom and what's on top is determined by pos_type.
+    geom_bar(stat="identity", position="stack") +
+    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") + 
+    theme_minimal() +
+    theme(legend.position = "top") +
+    # Tilt x-axis labels
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    # Add import_per_capita values as negative y axis bars by footprint_type and type
+    geom_bar(data = df %>% 
+               filter(footprint_type == part_negative),
+             aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type), 
+             stat="identity", position="stack") + 
+    scale_fill_manual(values=c_scheme) #+
+    # labs(fill="Footprint type", title=paste0(maintitle,"\n(positive: domestic+", pos_type, ", negative: ", neg_type, ")")) 
+    labs(fill="Footprint type")
+  
+  print(g)
+  return(g)
+}
+
