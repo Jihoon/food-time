@@ -1,4 +1,3 @@
-library(mrio)
 library(tidyverse)
 library(Matrix)
 
@@ -46,7 +45,7 @@ exio_mass_x = l[[1]]  # EXIO mass vector (len 9800)
 FABIO_x_in_EXIO = l[[2]]  # EXIO mass vector (23001x37400)
 rm(l)
 
-# TEST: Validate sum(FABIO_x)-sum(FABIO_x[rowSums(p_fabio_exio)==0]) == sum(exio_mass) == sum(v_mass)
+# TEST: Validate sum(FABIO_x)-sum(FABIO_x[rowSums(p_fabio_exio)==0]) == sum(exio_mass_x) == sum(v_mass)
 
 
 
@@ -96,7 +95,6 @@ saveRDS(l_int_d, file = paste0("data/FABIO_exio_satellites_food_", year, ".rds")
 #### 3. Calculate consumption-based calorie/protein footprints ####
 
 # Calculate consumption-based matrices
-FABIO_x_hh = FABIO_L %*% FABIO_y_hh
 # Obs: sum(FABIO_y_hh)/sum(FABIO_x_hh) gives only 5.6%.
 # Similarly, sum(FABIO_y)/sum(FABIO_x) gives only 5.9%.
 # => Makes sense because x includes all production, double-counting intermediate flows.
