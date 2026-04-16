@@ -153,3 +153,5 @@ df_restaurant = read_csv(paste0(path_GHD, "outputData/restaurants_accommodations
 
 # 4.3. Combine the two dataframes ####
 df_ghd_combined = bind_rows(df_ghd_gender, df_restaurant)
+
+cty_ghd = unique((df_ghd_gender %>% filter(footprint_type=="preparation_non.econ"))$country)
