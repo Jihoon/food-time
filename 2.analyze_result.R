@@ -6,14 +6,15 @@ data(countrypops)
 
 #### 1. Energy and Labor footprint ####
 
-# Total consumption-based footprint per country (23001 x 187)
-# By taking Diagonal(), we preserve the origin information in the intensity vectors. Target info is lost.
-# which can be good enough.
+# Load economic (direct food sector) and non-economic (indirect non-food sector) satellite data
+l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
+l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-
-# food-sector footprints
-l_int_d = readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
-l_int_i = readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
+# Countries with both economic and non-economic time data are those directly mapped to specific
+# EXIO regions (not RoW aggregates). RoW-mapped countries only have economic time data,
+# derived from their regional aggregate rather than country-specific satellites.
+has_nonecon_data <- !grepl("^RoW", FABIO_reg$EXIOBASE)
+names(has_nonecon_data) <- FABIO_reg$ISO
 
 # Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
@@ -467,21 +468,24 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
 
 
 
-# energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
-# # Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
-# hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
-# hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr 
-# 
-# colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
+# Pre-compute combined intensities (economic + non-economic) for countries with both types.
+# colSums(l_int_i[[ext]]) aggregates indirect non-food-sector intensities per FABIO product.
+l_int_both <- lapply(names(l_int_d), function(ext) {
+  l_int_d[[ext]] + colSums(l_int_i[[ext]])
+})
+names(l_int_both) <- names(l_int_d)
 
-# Country-wise consumption-based footprint 
+# Country-wise consumption-based footprint
 
-consumption = "food" # FABIO FD category
-country = "KOR"
-extension = "hr_m_int_d" #"en_int_d", "hr_f_int_d"
+consumption = "food"
 
 for (country in regions$iso3c) {
-  
+
+  # Select intensity based on data availability: countries directly mapped to specific EXIO
+  # regions have both economic and non-economic time data; RoW-mapped countries have economic only
+  l_int <- if (isTRUE(has_nonecon_data[country])) l_int_both else l_int_d
+  data_type <- if (isTRUE(has_nonecon_data[country])) "economic+non-economic" else "economic"
+
   for (extension in names(l_int)) {
     print(paste("Calculating", extension, "footprint for", country))
     
@@ -541,6 +545,7 @@ for (country in regions$iso3c) {
     results[,`:=`(country_consumer = country,
                   year = year,
                   indicator = extension,
+                  data_type = data_type,
                   country_origin = substr(origin,1,3),
                   item_origin = substr(origin,5,100),
                   country_target = substr(target,1,3),
