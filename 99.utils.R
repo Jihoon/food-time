@@ -189,7 +189,7 @@ sparsity <- function(mat) {
 
 plot_countries <- function(df, ylabel, maintitle) {
 
-  # Get domestsic/export/import factor names out of df$footprint_type 
+  # Get domestsic/export/import factor names out of df$footprint_type
   footprint_types = unique(df$footprint_type)
   name_dom = footprint_types[grepl("domestic", footprint_types)]
   name_exp = footprint_types[grepl("export", footprint_types)]
@@ -197,7 +197,7 @@ plot_countries <- function(df, ylabel, maintitle) {
   # print(name_dom, name_exp, name_imp)
   print(footprint_types)
 
-  c_scheme = c(name_dom="#1f77b4", name_exp="#2ca02c", name_imp="#ff7f0e")  
+  c_scheme = c(name_dom="#1f77b4", name_exp="#2ca02c", name_imp="#ff7f0e")
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp
@@ -210,35 +210,35 @@ plot_countries <- function(df, ylabel, maintitle) {
                  "preparation_non.econ" = "#ffa6a6",
                  "processing_non.econ" = "#fc4a4a",
                  "growth_collection_non.econ" = "#ce0303")
-    print("Plotting labor footprint with negative import values") 
+    print("Plotting labor footprint with negative import values")
   } else {  # Energy footprint or other types of footprints, default to negative import values
     part_negative = name_exp
     scale_factor = 1e3
   }
-  
+
   # Get first work before "_" of part_negative to determine the type of footprint for labeling
   neg_type = strsplit(part_negative, "_")[[1]][1]
   pos_type = ifelse(neg_type == "import", "export", "import")
-  
-  g = ggplot(df %>% 
+
+  g = ggplot(df %>%
                filter(footprint_type != part_negative),
              aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type)) +
     # When bars are stacked, make sure that "domestic_per_capita" is at the bottom and what's on top is determined by pos_type.
     geom_bar(stat="identity", position="stack") +
-    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") + 
+    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") +
     theme_minimal() +
     theme(legend.position = "top") +
     # Tilt x-axis labels
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     # Add import_per_capita values as negative y axis bars by footprint_type and type
-    geom_bar(data = df %>% 
+    geom_bar(data = df %>%
                filter(footprint_type == part_negative),
-             aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type), 
-             stat="identity", position="stack") + 
+             aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type),
+             stat="identity", position="stack") +
     scale_fill_manual(values=c_scheme) #+
-    # labs(fill="Footprint type", title=paste0(maintitle,"\n(positive: domestic+", pos_type, ", negative: ", neg_type, ")")) 
+    # labs(fill="Footprint type", title=paste0(maintitle,"\n(positive: domestic+", pos_type, ", negative: ", neg_type, ")"))
     labs(fill="Footprint type")
-  
+
   print(g)
   return(g)
 }
@@ -254,7 +254,7 @@ find_top_cells <- function(df, n = 10, matrix_name = "the matrix") {
   } else {
     stop("Input must be a data frame or matrix")
   }
-  
+
   # Top largest cells
   largest_indices <- order(mat, decreasing = TRUE)[1:min(n, length(mat))]
   print(paste("Top", length(largest_indices), "largest cells in", matrix_name, ":"))
@@ -266,7 +266,7 @@ find_top_cells <- function(df, n = 10, matrix_name = "the matrix") {
     print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", val))
     print(paste("This corresponds to", row_name, "and", col_name))
   }
-  
+
   # Top off-diagonal, assuming square
   if (nrow(mat) != ncol(mat)) {
     print("Matrix is not square, skipping off-diagonal analysis")
@@ -290,3 +290,32 @@ find_top_cells <- function(df, n = 10, matrix_name = "the matrix") {
 }
 
 
+# Reusable stacked bar chart: country × kcal breakdown
+plot_country_bars <- function(data, cols, labels, title,
+                               sort_desc = TRUE, n = 25,
+                               ylim_vals = NULL, filename = NULL,
+                               output_dir = NULL) {
+  d <- data %>%
+    { if (sort_desc) arrange(., desc(supp_pday)) else arrange(., supp_pday) } %>%
+    { if (!is.null(n)) slice_head(., n = n) else . } %>%
+    mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
+    pivot_longer(cols = all_of(cols), names_to = "type", values_to = "kcal_pday") %>%
+    mutate(type = factor(type, levels = cols, labels = labels))
+
+  p <- ggplot(d, aes(x = iso3c, y = kcal_pday, fill = type)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Country (ISO3)", y = "kcal/capita/day", fill = "Type", title = title) +
+    theme_minimal() +
+    theme(legend.position = "top",
+          axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = setNames(c("#1f77b4", "#2ca02c", "#ff7f0e"), labels))
+
+  if (!is.null(ylim_vals)) p <- p + ylim(ylim_vals[1], ylim_vals[2])
+
+  print(p)
+
+  if (!is.null(filename) && !is.null(output_dir))
+    ggsave(file.path(output_dir, filename), width = 10, height = 6)
+
+  invisible(p)
+}

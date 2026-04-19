@@ -643,71 +643,25 @@ prod_cty <- data.frame(iso3c = rownames(mat),
   filter(!iso3c %in% c("ROW", "TWN", "ANT")) %>% # countries with no population data
   filter(!iso3c %in% c("SGP", "MDV"), prod_pday > 1)  # countries not interesting
 
-# Draw a multi-panel grouped bar graph, showing production and export (for top 20 countries with highest export_perc)
-prod_cty %>%
-  arrange(desc(supp_pday)) %>%
-  slice_head(n=25) %>%  
-  # order bars by supp_pday (=prod+imp)
-  mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
-  
-  pivot_longer(cols = c("prod_pday", "imp_pday", "exp_pday"), names_to = "type", values_to = "kcal_pday") %>%
-  mutate(#iso3c = factor(iso3c, levels = iso3c[order(export_perc, decreasing = TRUE)]),
-    type = factor(type, levels = c("prod_pday", "imp_pday", "exp_pday"), labels = c("Own consumption", "Import", "Export"))) %>%
-  ggplot(aes(x=iso3c, y=kcal_pday, fill=type)) +
-  geom_bar(stat="identity") +
-  # coord_flip() +
-  labs(x="Country (ISO3)", y="kcal/capita/day", fill="Type",
-       title=paste0("Top 25 countries in total kcal footprint (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  scale_fill_manual(values=c("Own consumption"="#1f77b4", "Import"="#2ca02c", "Export"="#ff7f0e")) +
-  # Tilt x-axis labels
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ylim(-40000, 30000) 
+prod_cols   <- c("prod_pday", "imp_pday", "exp_pday")
+prod_labels <- c("Own consumption", "Import", "Export")
 
-ggsave(file.path(output_dir, paste0("plots/top25_", year, "_total.png")), width=10, height=6)
-# geom_text(aes(label=round(kcal_pday,1)), position=position_stack(vjust=0.5), size=3)
+# Top 25 countries by total kcal footprint
+plot_country_bars(prod_cty, cols = prod_cols, labels = prod_labels,
+  title = paste0("Top 25 countries in total kcal footprint (", year, ")"),
+  sort_desc = TRUE, n = 25, ylim_vals = c(-40000, 30000),
+  filename = paste0("plots/top25_", year, "_total.png"), output_dir = output_dir)
 
-# Make a similar graph for the bottom 20 countries with lowest export_perc (but prod_pday > 5000)
-prod_cty %>%
-  arrange(supp_pday) %>%
-  slice_head(n=25) %>%
-  # order bars by supp_pday (=prod+imp)
-  mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
-  pivot_longer(cols = c("prod_pday", "imp_pday", "exp_pday"), names_to = "type", values_to = "kcal_pday") %>%
-  mutate(#iso3c = factor(iso3c, levels = iso3c[order(export_perc, decreasing = TRUE)]),
-    type = factor(type, levels = c("prod_pday", "imp_pday", "exp_pday"), labels = c("Own consumption", "Import", "Export"))) %>%
-  ggplot(aes(x=iso3c, y=kcal_pday, fill=type)) +
-  geom_bar(stat="identity") +
-  # coord_flip() +
-  labs(x="Country (ISO3)", y="kcal/capita/day", fill="Type",
-       title=paste0("Bottom 25 countries in total kcal footprint (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  scale_fill_manual(values=c("Own consumption"="#1f77b4", "Import"="#2ca02c", "Export"="#ff7f0e")) +
-  # Tilt x-axis labels
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  ylim(-40000, 30000) 
+# Bottom 25 countries by total kcal footprint
+plot_country_bars(prod_cty, cols = prod_cols, labels = prod_labels,
+  title = paste0("Bottom 25 countries in total kcal footprint (", year, ")"),
+  sort_desc = FALSE, n = 25, ylim_vals = c(-40000, 30000),
+  filename = paste0("plots/bottom25_", year, "_total.png"), output_dir = output_dir)
 
-ggsave(file.path(output_dir, paste0("plots/bottom25_", year, "_total.png")), width=10, height=6)
-
-prod_cty %>%
-  arrange(supp_pday) %>%
-  # order bars by supp_pday (=prod+imp)
-  mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
-  pivot_longer(cols = c("prod_pday", "imp_pday", "exp_pday"), names_to = "type", values_to = "kcal_pday") %>%
-  mutate(#iso3c = factor(iso3c, levels = iso3c[order(export_perc, decreasing = TRUE)]),
-    type = factor(type, levels = c("prod_pday", "imp_pday", "exp_pday"), labels = c("Own consumption", "Import", "Export"))) %>%
-  ggplot(aes(x=iso3c, y=kcal_pday, fill=type)) +
-  geom_bar(stat="identity") +
-  # coord_flip() +
-  labs(x="Country (ISO3)", y="kcal/capita/day", fill="Type",
-       title=paste0("Domestic supply of total kcal footprint (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  scale_fill_manual(values=c("Own consumption"="#1f77b4", "Import"="#2ca02c", "Export"="#ff7f0e")) +
-  # Tilt x-axis labels
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# All countries — domestic supply
+plot_country_bars(prod_cty, cols = prod_cols, labels = prod_labels,
+  title = paste0("Domestic supply of total kcal footprint (", year, ")"),
+  sort_desc = FALSE, n = NULL)
 
 
 
@@ -729,51 +683,20 @@ cons_cty <- data.frame(iso3c = colnames(mat_y),
   filter(!iso3c %in% c("ROW", "TWN", "ANT")) %>% # countries with no population data
   filter(!iso3c %in% c("SGP", "MDV"), dom_cons_pday+imp_pday > 1000)
 
-# Draw a similar plot for consumption and import (stacked); and export (for top 20 countries with highest import_perc)
-cons_cty  %>% # countries not interesting
-  arrange(desc(supp_pday)) %>%
-  slice_head(n=25) %>%
-  mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
-  pivot_longer(cols = c("dom_cons_pday", "imp_pday", "exp_pday"), names_to = "type", values_to = "kcal_pday") %>%
-  mutate(type = factor(type, levels = c("dom_cons_pday", "imp_pday", "exp_pday"), 
-                       labels = c("Dom. consumption", "Import", "Export"))) %>%
-  ggplot(aes(x=iso3c, y=kcal_pday, fill=type)) +
-  geom_bar(stat="identity") +
-  # coord_flip() +
-  labs(x="Country (ISO3)", y="kcal/capita/day", fill="Type",
-       title=paste0("Top 20 countries in final kcal consumption (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  ylim(-12000, 8000) +
-  scale_fill_manual(values=c("Dom. consumption"="#1f77b4", "Import"="#2ca02c", "Export"="#ff7f0e")) +
-  # Tilt x-axis labels
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) #+
-# geom_text(aes(label=round(kcal_pday,1)), position=position_stack(vjust=0.5), size=3)
+cons_cols   <- c("dom_cons_pday", "imp_pday", "exp_pday")
+cons_labels <- c("Dom. consumption", "Import", "Export")
 
-ggsave(file.path(output_dir, paste0("plots/top25_", year, "_final_cons.png")), width=10, height=6)
+# Top 25 countries by final kcal consumption
+plot_country_bars(cons_cty, cols = cons_cols, labels = cons_labels,
+  title = paste0("Top 20 countries in final kcal consumption (", year, ")"),
+  sort_desc = TRUE, n = 25, ylim_vals = c(-12000, 8000),
+  filename = paste0("plots/top25_", year, "_final_cons.png"), output_dir = output_dir)
 
-# Make a similar graph for the bottom 20 countries with lowest import_perc (but cons_pday > 2000)
-cons_cty %>%
-  arrange(supp_pday) %>%
-  slice_head(n=25) %>%
-  mutate(iso3c = factor(iso3c, levels = iso3c[order(supp_pday, decreasing = TRUE)])) %>%
-  pivot_longer(cols = c("dom_cons_pday", "imp_pday", "exp_pday"), names_to = "type", values_to = "kcal_pday") %>%
-  mutate(type = factor(type, levels = c("dom_cons_pday", "imp_pday", "exp_pday"), 
-                       labels = c("Dom. consumption", "Import", "Export"))) %>%
-  ggplot(aes(x=iso3c, y=kcal_pday, fill=type)) +
-  geom_bar(stat="identity") +
-  # coord_flip() +
-  labs(x="Country (ISO3)", y="kcal/capita/day", fill="Type",
-       title=paste0("Bottom 20 countries in final kcal consumption (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  ylim(-12000, 8000) +
-  scale_fill_manual(values=c("Dom. consumption"="#1f77b4", "Import"="#2ca02c", "Export"="#ff7f0e")) +
-  # Tilt x-axis labels
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) #+
-# geom_text(aes(label=round(kcal_pday,1)), position=position_stack(vjust=0.5), size=3)
-
-ggsave(file.path(output_dir, paste0("plots/bottom25_", year, "_final_cons.png")), width=10, height=6)
+# Bottom 25 countries by final kcal consumption
+plot_country_bars(cons_cty, cols = cons_cols, labels = cons_labels,
+  title = paste0("Bottom 20 countries in final kcal consumption (", year, ")"),
+  sort_desc = FALSE, n = 25, ylim_vals = c(-12000, 8000),
+  filename = paste0("plots/bottom25_", year, "_final_cons.png"), output_dir = output_dir)
 
 
 # Societal food loss analysis ####
