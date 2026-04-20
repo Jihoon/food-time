@@ -12,22 +12,8 @@ l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".
 
 # Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
-# fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
-n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
-# fp_nonfood <- lapply(l_int_i, function(d) {
-#   fp <- matrix(0, nrow = n_nf * nrreg, ncol = nrreg)
-#   fp <- as(fp, "CsparseMatrix")
-#   B_i <- matrix(0, nrcom*nrreg, nrreg)
-#   for (i in 1:nrreg) {
-#     A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
-#     for (k in 1:nrreg) {
-#       B_i[((k-1)*nrcom + 1):(k*nrcom), k] <- FABIO_x_hh[((k-1)*nrcom + 1):(k*nrcom), i]
-#     }
-#     fp[((i-1)*n_nf + 1):(i*n_nf), ] <- A_i %*% B_i
-#   }
-#   fp
-# })
 
+n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
 fp_nonfood <- lapply(l_int_i, function(d) {
   fp_list <- vector("list", nrreg)
   for (i in 1:nrreg) {
@@ -428,39 +414,6 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
                                 mutate(footprint_type = factor(footprint_type, levels = c("domestic_hr_per_g_protein", "export_hr_per_g_protein", "import_hr_per_g_protein"))),
                               "Time per g protein (hr/g)", "Protein time conversion factors")
          
-
-
-
-# library(ggplot2)
-# # Labor hours
-# ggplot(summary_food_df %>% filter(type %in% c("hr_m", "hr_f")) %>%
-#          # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
-#           mutate(country = factor(country, levels = sum_ord)),
-#        aes(x=country, y=domestic_per_capita, fill=type)) +
-#   geom_bar(stat="identity", position="stack") +
-#   labs(x="Country (ISO3)", y="Daily time footprint per capita (hr/cap/day)", alpha="gender",
-#        title=paste0("Food-related time footprint per capita by country (", year, ")")) +
-#   theme_minimal() +
-#   theme(legend.position = "top") +
-#   # Add alpha values for genders
-#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
-#   # Tilt x-axis labels
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-# 
-#   # Add import_per_capita values as negative y axis bars by gender
-#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
-#            aes(x=country, y=-import_per_capita, fill=type), stat="identity", position="stack") +
-#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
-# 
-#   # Stack export_per_capita values as positive y axis bars by gender
-#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
-#            aes(x=country, y=export_per_capita, fill=type), stat="identity", position="stack") +
-#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
-#   
-#   labs(fill="hours by gender", title=paste0("Food-related time footprint per capita by country (", year, ")\n(positive: domestic+export, negative: import)"))
-  
-
-
 
 # Pre-compute combined intensities (economic + non-economic) for countries with both types.
 # colSums(l_int_i[[ext]]) aggregates indirect non-food-sector intensities per FABIO product.
