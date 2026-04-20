@@ -4,13 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an R-based research project computing global food-related **energy and labor time footprints** by linking two multi-regional input-output (MRIO) databases:
+This project computes country-level **time conversion factors** for food provisioning — how many hours of human time (and how much energy) are required to provision one kcal or gram of protein, and how these trade off against each other across countries. See: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5390280
 
+The **time dimension** has three components:
+1. **Household work time** (non-economic): food preparation, processing, home growing/collection — from GHD/TUS data, split by gender
+2. **Labor in food sectors** (economic, direct): hours embedded in food supply chains — from EXIOBASE3 labor satellites via FABIO
+3. **Labor in non-food sectors** (economic, indirect): hours in packaging, transport, etc. that support food production — derived via Leontief inverse
+
+The **energy dimension** covers both direct food-sector energy use and indirect non-food-sector energy, also from EXIOBASE3.
+
+All metrics are normalized per kcal and per gram of protein, computed for 187 countries, and decomposed into domestic vs. trade-embedded components.
+
+Data sources:
 - **FABIO** (Food and Agriculture Biomass Input-Output): 187 countries × 123 food commodities, mass-based
 - **EXIOBASE3** (pxp, 2020): 49 regions × 200 sectors, monetary-based, with energy (TJ) and labor (M.hr) satellite accounts
-- **Global Human Day (GHD/Fajzel)** dataset: non-economic food time (preparation, processing, growth/collection) by gender
-
-The key research question is: how much energy and human time (by gender, domestic vs. trade-embedded) does the global food system require, normalized per capita and per calorie/protein unit?
+- **Global Human Day (GHD/Fajzel)** dataset: non-economic food time by gender
 
 ## Script Execution Order
 
