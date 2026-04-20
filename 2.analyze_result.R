@@ -10,11 +10,10 @@ data(countrypops)
 l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
 l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-# Countries with both economic and non-economic time data are those directly mapped to specific
-# EXIO regions (not RoW aggregates). RoW-mapped countries only have economic time data,
-# derived from their regional aggregate rather than country-specific satellites.
-has_nonecon_data <- !grepl("^RoW", FABIO_reg$EXIOBASE)
-names(has_nonecon_data) <- FABIO_reg$ISO
+# Countries with both economic and non-economic time data are those present in the GHD dataset.
+# All other countries only have economic time data.
+has_nonecon_data <- regions$iso3c %in% cty_ghd
+names(has_nonecon_data) <- regions$iso3c
 
 # Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
