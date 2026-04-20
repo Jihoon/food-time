@@ -481,7 +481,6 @@ for (country in regions$iso3c) {
     #                    stock_addition = 0)]
     # }
     
-    int <- l_int_both[[extension]]
     MP <- int * FABIO_L
     
     # Initialize empty matrix to store results (row: exporter, col: importer)
