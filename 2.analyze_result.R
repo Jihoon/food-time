@@ -415,8 +415,40 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
                               "Time per g protein (hr/g)", "Protein time conversion factors")
          
 
-# Pre-compute combined intensities (economic + non-economic) for countries with both types.
-# colSums(l_int_i[[ext]]) aggregates indirect non-food-sector intensities per FABIO product.
+
+
+
+# library(ggplot2)
+# # Labor hours
+# ggplot(summary_food_df %>% filter(type %in% c("hr_m", "hr_f")) %>%
+#          # Order countries by sum of domestic_per_capita of type "hr_m" and "hr_f"
+#           mutate(country = factor(country, levels = sum_ord)),
+#        aes(x=country, y=domestic_per_capita, fill=type)) +
+#   geom_bar(stat="identity", position="stack") +
+#   labs(x="Country (ISO3)", y="Daily time footprint per capita (hr/cap/day)", alpha="gender",
+#        title=paste0("Food-related time footprint per capita by country (", year, ")")) +
+#   theme_minimal() +
+#   theme(legend.position = "top") +
+#   # Add alpha values for genders
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+#   # Tilt x-axis labels
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#
+#   # Add import_per_capita values as negative y axis bars by gender
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")),
+#            aes(x=country, y=-import_per_capita, fill=type), stat="identity", position="stack") +
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+#
+#   # Stack export_per_capita values as positive y axis bars by gender
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")),
+#            aes(x=country, y=export_per_capita, fill=type), stat="identity", position="stack") +
+#   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
+#
+#   labs(fill="hours by gender", title=paste0("Food-related time footprint per capita by country (", year, ")\n(positive: domestic+export, negative: import)"))
+
+
+
+# Pre-compute total economic intensities: direct (food sectors) + indirect (non-food sectors)
 l_int_both <- lapply(names(l_int_d), function(ext) {
   l_int_d[[ext]] + colSums(l_int_i[[ext]])
 })
@@ -428,12 +460,7 @@ consumption = "food"
 
 for (country in regions$iso3c) {
 
-  # Select intensity based on data availability: countries directly mapped to specific EXIO
-  # regions have both economic and non-economic time data; RoW-mapped countries have economic only
-  l_int <- if (isTRUE(country %in% cty_ghd)) l_int_both else l_int_d
-  data_type <- if (isTRUE(country %in% cty_ghd)) "economic+non-economic" else "economic"
-
-  for (extension in names(l_int)) {
+  for (extension in names(l_int_both)) {
     print(paste("Calculating", extension, "footprint for", country))
     
     Y_country <- FABIO_y[, which(fd$iso3c == country)]
@@ -456,7 +483,7 @@ for (country in regions$iso3c) {
     #                    stock_addition = 0)]
     # }
     
-    int <- l_int[[extension]]
+    int <- l_int_both[[extension]]
     MP <- int * FABIO_L
     
     # Initialize empty matrix to store results (row: exporter, col: importer)
@@ -492,7 +519,7 @@ for (country in regions$iso3c) {
     results[,`:=`(country_consumer = country,
                   year = year,
                   indicator = extension,
-                  data_type = data_type,
+
                   country_origin = substr(origin,1,3),
                   item_origin = substr(origin,5,100),
                   country_target = substr(target,1,3),
