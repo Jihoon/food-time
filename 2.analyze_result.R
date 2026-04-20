@@ -10,11 +10,6 @@ data(countrypops)
 l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
 l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-# Countries with both economic and non-economic time data are those present in the GHD dataset.
-# All other countries only have economic time data.
-has_nonecon_data <- regions$iso3c %in% cty_ghd
-names(has_nonecon_data) <- regions$iso3c
-
 # Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
 # fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
@@ -482,8 +477,8 @@ for (country in regions$iso3c) {
 
   # Select intensity based on data availability: countries directly mapped to specific EXIO
   # regions have both economic and non-economic time data; RoW-mapped countries have economic only
-  l_int <- if (isTRUE(has_nonecon_data[country])) l_int_both else l_int_d
-  data_type <- if (isTRUE(has_nonecon_data[country])) "economic+non-economic" else "economic"
+  l_int <- if (isTRUE(country %in% cty_ghd)) l_int_both else l_int_d
+  data_type <- if (isTRUE(country %in% cty_ghd)) "economic+non-economic" else "economic"
 
   for (extension in names(l_int)) {
     print(paste("Calculating", extension, "footprint for", country))
