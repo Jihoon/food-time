@@ -448,11 +448,8 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
 
 
 
-# Pre-compute total economic intensities: direct (food sectors) + indirect (non-food sectors)
-l_int_both <- lapply(names(l_int_d), function(ext) {
-  l_int_d[[ext]] + colSums(l_int_i[[ext]])
-})
-names(l_int_both) <- names(l_int_d)
+# Aggregate indirect (non-food sector) intensities to FABIO-product level
+l_int_i_agg <- lapply(l_int_i, colSums)
 
 # Country-wise consumption-based footprint
 
@@ -460,17 +457,18 @@ consumption = "food"
 
 for (country in regions$iso3c) {
 
-  for (extension in names(l_int_both)) {
-    print(paste("Calculating", extension, "footprint for", country))
-    
-    Y_country <- FABIO_y[, which(fd$iso3c == country)]
-    # Y_country <- Yi[, fd$iso3c == country]
-    colnames(Y_country) <- fd$fd[fd$iso3c == country]
-    
-    pop = subset(countrypops, country_code_3 == country & year == yr)$population
-    if (country %in% setdiff(regions$iso3c, unique(countrypops$country_code_3))) {pop=NA}
-    
-    print(paste("Population =", pop))
+  Y_country <- FABIO_y[, which(fd$iso3c == country)]
+  colnames(Y_country) <- fd$fd[fd$iso3c == country]
+
+  pop = subset(countrypops, country_code_3 == country & year == yr)$population
+  if (country %in% setdiff(regions$iso3c, unique(countrypops$country_code_3))) {pop=NA}
+
+  for (extension in names(l_int_d)) {
+    for (sector in c("food", "non_food")) {
+
+      int <- if (sector == "food") l_int_d[[extension]] else l_int_i_agg[[extension]]
+
+      print(paste("Calculating", extension, sector, "footprint for", country))
     
     # if(spread_stocks){
     #   stock_ratio <- Y_country[, "stock_addition"] / (rowSums(Y_country) - Y_country[, "stock_addition"])
@@ -519,7 +517,7 @@ for (country in regions$iso3c) {
     results[,`:=`(country_consumer = country,
                   year = year,
                   indicator = extension,
-
+                  sector = sector,
                   country_origin = substr(origin,1,3),
                   item_origin = substr(origin,5,100),
                   country_target = substr(target,1,3),
@@ -548,13 +546,14 @@ for (country in regions$iso3c) {
       ungroup() %>%
       bind_rows(summarise(., item_target = "Total", across(-item_target, sum)))
     
-    data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", consumption,".csv"), sep=",")
-    
+    data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", sector, "_", consumption,".csv"), sep=",")
+
     data_imp_tot = tail(data_tot, 1) %>% rename(importer = item_target) %>% mutate(importer = country)
-    
+
     # Fill mat with data_imp_tot where rownames(mat) match names(data_imp_tot), and colnames(mat) match data_imp_tot$importer
-    mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <- 
+    mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <-
       as.numeric(data_imp_tot[1, names(data_imp_tot) %in% rownames(mat)])
+    }
   }
 }
 
