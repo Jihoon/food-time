@@ -65,3 +65,26 @@ The final footprint has two components:
 Plus **non-economic food time** from GHD (household preparation, processing, growth/collection) added at the analysis stage.
 
 All results are decomposed into **domestic**, **export** (origin country's footprint for goods it produces for others), and **import** (footprint embedded in imports consumed domestically).
+
+## Key Conventions
+
+### Naming Patterns
+- `int_d` = direct intensity (energy or labor per kg at production point)
+- `int_i` = indirect intensity (embodied in non-food supply chains)
+- `sat_*` = satellite accounts (e.g., `sat_energy`, `sat_labor`)
+- `x` = production vector/matrix, `Y` = final demand, `L` = Leontief inverse
+- FABIO = food-specific IO system; EXIO = full economy IO system
+
+### Matrix Operations
+- Use `Matrix` package sparse types (`dgCMatrix`) for large IO tables
+- Row/column scaling uses `Diagonal()` and `sweep()` rather than dense multiplication
+- NaN and Inf produced by division (0/0 or x/0) are replaced with 0
+- Kronecker products expand multi-region matrices
+
+### Physical Units
+- Energy: TJ (terajoules), converted to J/kg for intensities
+- Labor: Million hours (M.hr) by gender; units are hr/kg for intensities
+- Food mass: tonnes; calories: kcal; protein: grams
+
+### Dependencies
+Core packages: `mrio`, `tidyverse`, `Matrix`, `data.table`, `readxl`, `gt`, `countrypops`
