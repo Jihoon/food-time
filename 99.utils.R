@@ -189,10 +189,18 @@ sparsity <- function(mat) {
 
 plot_countries <- function(df, ylabel, maintitle) {
 
-  c_scheme = c("domestic_per_capita"="#1f77b4", "export_per_capita"="#2ca02c", "import_per_capita"="#ff7f0e")  
+  # Get domestsic/export/import factor names out of df$footprint_type 
+  footprint_types = unique(df$footprint_type)
+  name_dom = footprint_types[grepl("domestic", footprint_types)]
+  name_exp = footprint_types[grepl("export", footprint_types)]
+  name_imp = footprint_types[grepl("import", footprint_types)]
+  # print(name_dom, name_exp, name_imp)
+  print(footprint_types)
+
+  c_scheme = c(name_dom="#1f77b4", name_exp="#2ca02c", name_imp="#ff7f0e")  
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
-    part_negative = "export_per_capita"
+    part_negative = name_exp
     scale_factor = 1
   } else if (df$type[1] %in% c("hr_m", "hr_f")) { # Labor footprint
     part_negative = "import_per_capita"
@@ -204,7 +212,7 @@ plot_countries <- function(df, ylabel, maintitle) {
                  "growth_collection_non.econ" = "#ce0303")
     print("Plotting labor footprint with negative import values") 
   } else {  # Energy footprint or other types of footprints, default to negative import values
-    part_negative = "export_per_capita"
+    part_negative = name_exp
     scale_factor = 1e3
   }
   
@@ -234,4 +242,51 @@ plot_countries <- function(df, ylabel, maintitle) {
   print(g)
   return(g)
 }
+
+
+# Function to plot the top 10 countries with the highest per capita footprint for each type of footprint
+
+find_top_cells <- function(df, n = 10, matrix_name = "the matrix") {
+  if (is.data.frame(df)) {
+    mat <- as.matrix(df)
+  } else if (is.matrix(df)) {
+    mat <- df
+  } else {
+    stop("Input must be a data frame or matrix")
+  }
+  
+  # Top largest cells
+  largest_indices <- order(mat, decreasing = TRUE)[1:min(n, length(mat))]
+  print(paste("Top", length(largest_indices), "largest cells in", matrix_name, ":"))
+  for (idx in largest_indices) {
+    row_col <- arrayInd(idx, dim(mat))
+    val <- mat[idx]
+    row_name <- if (!is.null(rownames(mat))) rownames(mat)[row_col[1]] else row_col[1]
+    col_name <- if (!is.null(colnames(mat))) colnames(mat)[row_col[2]] else row_col[2]
+    print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", val))
+    print(paste("This corresponds to", row_name, "and", col_name))
+  }
+  
+  # Top off-diagonal, assuming square
+  if (nrow(mat) != ncol(mat)) {
+    print("Matrix is not square, skipping off-diagonal analysis")
+    return()
+  }
+  off_diag_vec <- mat[!diag(nrow(mat))]
+  largest_offdiag_indices <- order(off_diag_vec, decreasing = TRUE)[1:min(n, length(off_diag_vec))]
+  print(paste("Top", length(largest_offdiag_indices), "largest off-diagonal cells in", matrix_name, ":"))
+  diag_mask <- diag(nrow(mat))
+  flat_idx <- which(!diag_mask, arr.ind = FALSE)
+  for (i in 1:length(largest_offdiag_indices)) {
+    idx_in_flat <- largest_offdiag_indices[i]
+    global_idx <- flat_idx[idx_in_flat]
+    row_col <- arrayInd(global_idx, dim(mat))
+    val <- mat[global_idx]
+    row_name <- if (!is.null(rownames(mat))) rownames(mat)[row_col[1]] else row_col[1]
+    col_name <- if (!is.null(colnames(mat))) colnames(mat)[row_col[2]] else row_col[2]
+    print(paste("Cell at row", row_col[1], "and column", row_col[2], "with value", val))
+    print(paste("This corresponds to", row_name, "and", col_name))
+  }
+}
+
 
