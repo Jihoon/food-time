@@ -467,6 +467,53 @@ ggsave("results/conversion_protein_econ.pdf",    p_conversion_protein_econ,    w
 ggsave("results/conversion_protein_nonecon.pdf", p_conversion_protein_nonecon, width = 18, height = 8)
 
 
+#### USA spotlight ####
+
+# Combine food-sector (direct) + non-food-sector (indirect) for labor and energy,
+# then join with kcal and protein supply to show all dimensions side by side.
+
+usa_time_energy = bind_rows(
+  summary_food_df_long    %>% mutate(sector = "food"),
+  summary_nonfood_df_long %>% mutate(sector = "nonfood")
+) %>%
+  filter(as.character(country) == "USA") %>%
+  group_by(type, footprint_type) %>%
+  summarise(per_capita_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(footprint_type = as.character(footprint_type),
+         per_capita_value = ifelse(type == "en", per_capita_value / 1e3, per_capita_value))
+
+usa_nutrition = bind_rows(
+  summary_kcal_df_long %>% mutate(type = "kcal"),
+  summary_pro_df_long  %>% mutate(type = "protein")
+) %>%
+  filter(as.character(country) == "USA") %>%
+  select(type, footprint_type, per_capita_value) %>%
+  mutate(footprint_type = as.character(footprint_type))
+
+usa_spotlight = bind_rows(usa_time_energy, usa_nutrition) %>%
+  mutate(
+    flow = case_when(
+      grepl("export", footprint_type) ~ "export",
+      grepl("import", footprint_type) ~ "import",
+      TRUE ~ "domestic"
+    ),
+    metric = factor(type,
+      levels = c("hr_f", "hr_m", "en", "kcal", "protein"),
+      labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)",
+                 "Energy\n(GJ/cap/yr)", "Food supply\n(kcal/cap/day)", "Protein supply\n(g/cap/day)"))
+  )
+
+p_usa = ggplot(usa_spotlight, aes(x = flow, y = per_capita_value, fill = flow)) +
+  geom_col(width = 0.6) +
+  facet_wrap(~metric, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = c("domestic" = "#1f77b4", "export" = "#2ca02c", "import" = "#ff7f0e")) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = paste0("USA food system footprint per capita (", year, ")")) +
+  theme_minimal() +
+  theme(legend.position = "top", strip.text = element_text(size = 10))
+
+ggsave("results/usa_spotlight.pdf", p_usa, width = 14, height = 5)
+
 
 #### Energy-time tradeoff ####
 library(ggrepel)
