@@ -418,6 +418,11 @@ v_ord_protein_econ = (summary_time_protein %>%
 df_convfac_protein_econ    = summary_time_protein %>% filter(grepl("per_capita", footprint_type_time))
 df_convfac_protein_nonecon = summary_time_protein %>% filter(country %in% cty_ghd)
 
+v_ord_protein_alltime = (df_convfac_protein_nonecon %>% 
+               filter(type %in% c("hr_f"), cat=="domestic") %>% 
+               group_by(country) %>% summarise(d = sum(hr_per_100g_protein, na.rm=TRUE)) %>%
+               arrange(-d))$country
+
 p_conversion_protein_econ = ggplot(
   df_convfac_protein_econ %>%
     filter(footprint_type_time == "domestic_per_capita") %>%
