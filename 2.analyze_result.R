@@ -470,88 +470,88 @@ for (country in regions$iso3c) {
 
       print(paste("Calculating", extension, sector, "footprint for", country))
     
-    # if(spread_stocks){
-    #   stock_ratio <- Y_country[, "stock_addition"] / (rowSums(Y_country) - Y_country[, "stock_addition"])
-    #   stock_ratio[!is.finite(stock_ratio)] <- 0
-    #   Y_country <- as.data.table(as.matrix(Y_country))
-    #   Y_country[, `:=`(food = food * (1 + stock_ratio),
-    #                    other = other * (1 + stock_ratio),
-    #                    tourist = tourist * (1 + stock_ratio),
-    #                    unspecified = unspecified * (1 + stock_ratio),
-    #                    stock_addition = 0)]
-    # }
-    
-    MP <- int * FABIO_L
-    
-    # Initialize empty matrix to store results (row: exporter, col: importer)
-    mat <- matrix(0, nrow=nrreg, ncol = nrreg, byrow=TRUE)
-    rownames(mat) <- colnames(mat) <- sort(regions$iso3c)
-    
-    # Calculate footprints (energy & labor hr)
-    country_consump = as.vector(as.matrix(Y_country[, consumption]))
-    FP <- t(t(MP) * country_consump) # <= dim (23001x23001)
-    colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
-    FP <- as(FP, "TsparseMatrix")
-    
-    # Calculate calorie & protein production/consumption 
-    x_country = t(t(FABIO_L) * country_consump) # mass flows
-    # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
-    FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
-    FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
-    colnames(FP_cal) <- rownames(FP_cal) <- colnames(FP_pro) <- rownames(FP_pro) <- paste0(io$iso3c, "_", io$item)
-    FP_cal <- as(FP_cal, "TsparseMatrix")
-    FP_pro <- as(FP_pro, "TsparseMatrix")
-    
-    cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
-    pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
-    
-    results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
-                          value = FP@x, # M.hr
-                          value_pcap = FP@x / pop * 1e6, # hr/cap (for labor)
-                          cal = FP_cal@x,
-                          cal_pcap = FP_cal@x / pop, # kcal per capita
-                          pro = FP_pro@x,
-                          pro_pcap = FP_pro@x / pop  # g-protein per capita
-    ) 
-    results[,`:=`(country_consumer = country,
-                  year = year,
-                  indicator = extension,
-                  sector = sector,
-                  country_origin = substr(origin,1,3),
-                  item_origin = substr(origin,5,100),
-                  country_target = substr(target,1,3),
-                  item_target = substr(target,5,100))]
-    
-    results[,`:=`(group_origin = items$comm_group[match(results$item_origin,items$item)],
-                  group_target = items$comm_group[match(results$item_target,items$item)],
-                  continent_origin = regions$continent[match(results$country_origin, regions$iso3c)])]
-    
-    results$continent_origin[results$country_origin==country] <- country
-    
-    # Remove "Live animals" from the nutrient flows
-    # CHECK: Need to be in energy/labor footprints?
-    results = results %>%
-      filter(group_origin != "Live animals")
-    
-    # print(paste(country, "ratio of FD vs. production:", 
-    #             round(sum(as.matrix(Y_country)[, consumption]) / sum(results$value),4)))
-    
-    data_tot <- results %>%
-      group_by(item_target, country_origin) %>%
-      filter(value != 0) %>%
-      summarise(value = (sum(value))) %>%
-      spread(country_origin, value, fill = 0) %>% # Al
-      # Add a row with column sums
-      ungroup() %>%
-      bind_rows(summarise(., item_target = "Total", across(-item_target, sum)))
-    
-    data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", sector, "_", consumption,".csv"), sep=",")
+      # if(spread_stocks){
+      #   stock_ratio <- Y_country[, "stock_addition"] / (rowSums(Y_country) - Y_country[, "stock_addition"])
+      #   stock_ratio[!is.finite(stock_ratio)] <- 0
+      #   Y_country <- as.data.table(as.matrix(Y_country))
+      #   Y_country[, `:=`(food = food * (1 + stock_ratio),
+      #                    other = other * (1 + stock_ratio),
+      #                    tourist = tourist * (1 + stock_ratio),
+      #                    unspecified = unspecified * (1 + stock_ratio),
+      #                    stock_addition = 0)]
+      # }
+      
+      MP <- int * FABIO_L
+      
+      # Initialize empty matrix to store results (row: exporter, col: importer)
+      mat <- matrix(0, nrow=nrreg, ncol = nrreg, byrow=TRUE)
+      rownames(mat) <- colnames(mat) <- sort(regions$iso3c)
+      
+      # Calculate footprints (energy & labor hr)
+      country_consump = as.vector(as.matrix(Y_country[, consumption]))
+      FP <- t(t(MP) * country_consump) # <= dim (23001x23001)
+      colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
+      FP <- as(FP, "TsparseMatrix")
+      
+      # Calculate calorie & protein production/consumption 
+      x_country = t(t(FABIO_L) * country_consump) # mass flows
+      # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
+      FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
+      FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
+      colnames(FP_cal) <- rownames(FP_cal) <- colnames(FP_pro) <- rownames(FP_pro) <- paste0(io$iso3c, "_", io$item)
+      FP_cal <- as(FP_cal, "TsparseMatrix")
+      FP_pro <- as(FP_pro, "TsparseMatrix")
+      
+      cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
+      pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
+      
+      results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
+                            value = FP@x, # M.hr
+                            value_pcap = FP@x / pop * 1e6, # hr/cap (for labor)
+                            cal = FP_cal@x,
+                            cal_pcap = FP_cal@x / pop, # kcal per capita
+                            pro = FP_pro@x,
+                            pro_pcap = FP_pro@x / pop  # g-protein per capita
+      ) 
+      results[,`:=`(country_consumer = country,
+                    year = year,
+                    indicator = extension,
+                    sector = sector,
+                    country_origin = substr(origin,1,3),
+                    item_origin = substr(origin,5,100),
+                    country_target = substr(target,1,3),
+                    item_target = substr(target,5,100))]
+      
+      results[,`:=`(group_origin = items$comm_group[match(results$item_origin,items$item)],
+                    group_target = items$comm_group[match(results$item_target,items$item)],
+                    continent_origin = regions$continent[match(results$country_origin, regions$iso3c)])]
+      
+      results$continent_origin[results$country_origin==country] <- country
+      
+      # Remove "Live animals" from the nutrient flows
+      # CHECK: Need to be in energy/labor footprints?
+      results = results %>%
+        filter(group_origin != "Live animals")
+      
+      # print(paste(country, "ratio of FD vs. production:", 
+      #             round(sum(as.matrix(Y_country)[, consumption]) / sum(results$value),4)))
+      
+      data_tot <- results %>%
+        group_by(item_target, country_origin) %>%
+        filter(value != 0) %>%
+        summarise(value = (sum(value))) %>%
+        spread(country_origin, value, fill = 0) %>% # Al
+        # Add a row with column sums
+        ungroup() %>%
+        bind_rows(summarise(., item_target = "Total", across(-item_target, sum)))
+      
+      data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", sector, "_", consumption,".csv"), sep=",")
 
-    data_imp_tot = tail(data_tot, 1) %>% rename(importer = item_target) %>% mutate(importer = country)
+      data_imp_tot = tail(data_tot, 1) %>% rename(importer = item_target) %>% mutate(importer = country)
 
-    # Fill mat with data_imp_tot where rownames(mat) match names(data_imp_tot), and colnames(mat) match data_imp_tot$importer
-    mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <-
-      as.numeric(data_imp_tot[1, names(data_imp_tot) %in% rownames(mat)])
+      # Fill mat with data_imp_tot where rownames(mat) match names(data_imp_tot), and colnames(mat) match data_imp_tot$importer
+      mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <-
+        as.numeric(data_imp_tot[1, names(data_imp_tot) %in% rownames(mat)])
     }
   }
 }
