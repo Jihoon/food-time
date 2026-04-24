@@ -397,24 +397,63 @@ p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
 #   theme(axis.text.x = element_text(angle = 45, hjust = 1))      
 
 
-# Do the same for protein
-summary_time_protein = summary_food_df_long %>% 
+# Do the same for protein (long format, mirrors summary_time_kcal)
+summary_time_protein = summary_food_df_long_with_ghd %>%
   filter(type %in% c("hr_m", "hr_f")) %>%
-  select(country, type, footprint_type, per_capita_value) %>%
-  pivot_wider(names_from = footprint_type, values_from = per_capita_value) %>%
-  left_join(summary_pro_df_long %>% select(country, footprint_type, per_capita_value) %>%
-              pivot_wider(names_from = footprint_type, values_from = per_capita_value), 
-            by = "country", suffix = c("_time", "_protein")) %>%
-  mutate(across(ends_with(c("per_capita_time", "per_capita_protein")), ~ .x / 1e6)) %>%
-  mutate(domestic_hr_per_g_protein = domestic_per_capita_time / domestic_per_capita_protein,
-         export_hr_per_g_protein = export_per_capita_time / export_per_capita_protein,
-         import_hr_per_g_protein = import_per_capita_time / import_per_capita_protein)
-p_conversion_protein = plot_countries(summary_time_protein %>% 
-                                select(country, type, starts_with(c("domestic", "export", "import"))) %>%
-                                pivot_longer(cols = starts_with(c("domestic", "export", "import")), 
-                                             names_to = "footprint_type", values_to = "hr_per_g_protein") %>%
-                                mutate(footprint_type = factor(footprint_type, levels = c("domestic_hr_per_g_protein", "export_hr_per_g_protein", "import_hr_per_g_protein"))),
-                              "Time per g protein (hr/g)", "Protein time conversion factors")
+  mutate(cat = case_when(
+    footprint_type == "export_per_capita" ~ "export",
+    footprint_type == "import_per_capita" ~ "import",
+    .default = "domestic"
+  )) %>%
+  select(country, type, cat, footprint_type, per_capita_value) %>%
+  left_join(summary_pro_df_long %>% select(country, cat, footprint_type, per_capita_value),
+            by = c("country", "cat"), suffix = c("_time", "_protein")) %>%
+  ungroup() %>%
+  mutate(hr_per_100g_protein = per_capita_value_time / per_capita_value_protein * 100)
+
+v_ord_protein_econ = (summary_time_protein %>%
+  filter(type == "hr_f", cat == "domestic", grepl("per_capita", footprint_type_time)) %>%
+  arrange(-hr_per_100g_protein))$country
+
+df_convfac_protein_econ    = summary_time_protein %>% filter(grepl("per_capita", footprint_type_time))
+df_convfac_protein_nonecon = summary_time_protein %>% filter(country %in% cty_ghd)
+
+p_conversion_protein_econ = ggplot(
+  df_convfac_protein_econ %>%
+    filter(footprint_type_time == "domestic_per_capita") %>%
+    select(country, type, footprint_type_time, hr_per_100g_protein) %>%
+    mutate(country = factor(country, levels = v_ord_protein_econ)),
+  aes(x = country, y = hr_per_100g_protein, fill = footprint_type_time)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~type, ncol = 1, scales = "fixed") +
+  labs(x = "Country (ISO3)", y = "Time per 100 g protein (hr/100g)", fill = "Footprint type",
+       title = paste0("Time per 100 g protein by country (", year, ") - Economic time only")) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  scale_fill_manual(values = c("domestic_per_capita" = "#1f77b4",
+                               "export_per_capita"   = "#2ca02c",
+                               "import_per_capita"   = "#ff7f0e")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_conversion_protein_nonecon = ggplot(
+  df_convfac_protein_nonecon %>%
+    select(country, type, footprint_type_time, hr_per_100g_protein) %>%
+    mutate(country = factor(country, levels = v_ord_alltime)),
+  aes(x = country, y = hr_per_100g_protein, fill = footprint_type_time)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~type, ncol = 1, scales = "fixed") +
+  labs(x = "Country (ISO3)", y = "Time per 100 g protein (hr/100g)", fill = "Footprint type",
+       title = paste0("Time per 100 g protein by country (", year, ")")) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  scale_fill_manual(values = c("domestic_per_capita"        = "#1f77b4",
+                               "export_per_capita"          = "#2ca02c",
+                               "import_per_capita"          = "#ff7f0e",
+                               "preparation_non.econ"       = "#ffa6a6",
+                               "processing_non.econ"        = "#fc4a4a",
+                               "growth_collection_non.econ" = "#ce0303",
+                               "preparation_econ"           = "#8610ca")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
          
 
 
