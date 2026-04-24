@@ -778,7 +778,74 @@ print(paste("Total exports from", cty, ":", sum(ex[names(ex)!=cty], na.rm=TRUE),
 
 
 
-######### Total footprint analysis #################
+#### Sankey diagrams: kcal and protein trade by continent ####
+
+library(networkD3)
+
+# Build protein trade matrix (same structure as mat_y for kcal)
+Y_pro_cons = data.table(as.matrix(FABIO_y_hh_pro))
+colnames(Y_pro_cons) <- regions$iso3c
+Y_pro_cons[, iso3c := io$iso3c]
+
+mat_y_pro = Y_pro_cons %>%
+  group_by(iso3c) %>%
+  dplyr::summarise(across(where(is.numeric), \(x) sum(x, na.rm = TRUE))) %>%
+  column_to_rownames(var = "iso3c") %>%
+  select(sort(peek_vars())) %>%
+  as.matrix()  # g protein; rows = producer, cols = consumer country
+
+# Aggregate country×country matrix to continent×continent
+agg_to_continent <- function(mat) {
+  cty  = colnames(mat)
+  cont = regions$continent[match(cty, regions$iso3c)]
+  conts = sort(unique(na.omit(cont)))
+  mat_c = matrix(0, nrow = length(conts), ncol = length(conts),
+                 dimnames = list(conts, conts))
+  for (i in conts)
+    for (j in conts)
+      mat_c[i, j] = sum(mat[which(cont == i), which(cont == j)], na.rm = TRUE)
+  mat_c
+}
+
+mat_kcal_cont = agg_to_continent(mat_y)      # kcal
+mat_pro_cont  = agg_to_continent(mat_y_pro)  # g protein
+
+# Convert continent×continent matrix to Sankey links/nodes
+# Producer nodes sit on the left, consumer nodes on the right (avoids self-loop issue)
+mat_to_sankey <- function(mat, scale) {
+  conts = rownames(mat)
+  nodes = data.frame(name = c(paste0(conts, " (prod)"), paste0(conts, " (cons)")))
+  links = as.data.frame(mat) %>%
+    tibble::rownames_to_column("source_name") %>%
+    pivot_longer(-source_name, names_to = "target_name", values_to = "value") %>%
+    filter(value > 0) %>%
+    mutate(
+      source = match(paste0(source_name, " (prod)"), nodes$name) - 1L,
+      target = match(paste0(target_name, " (cons)"), nodes$name) - 1L,
+      value  = value / scale
+    )
+  list(nodes = nodes, links = as.data.frame(links))
+}
+
+sankey_kcal = mat_to_sankey(mat_kcal_cont, scale = 1e12)  # display in Tcal
+sankey_pro  = mat_to_sankey(mat_pro_cont,  scale = 1e9)   # display in kt protein
+
+p_sankey_kcal = sankeyNetwork(
+  Links = sankey_kcal$links, Nodes = sankey_kcal$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "Tcal"
+)
+
+p_sankey_pro = sankeyNetwork(
+  Links = sankey_pro$links, Nodes = sankey_pro$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "kt protein"
+)
+
+htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = TRUE)
+htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = TRUE)
 
 prod_cty <- data.frame(iso3c = rownames(mat), 
                        dom_consump = diag(mat), 
