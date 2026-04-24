@@ -110,6 +110,7 @@ total_intensity_fabio = list(
 #       colSums(FABIO_y_in_EXIO) to get total energy/labor footprint for that EXIO non-food sector/origin country.
 # And then, this vector can mapped to FABIO food sector/country by using p_fabio_exio.
 
+# This gives an intensity matrix (in the same dim as satellite (32725x23001)).
 l_int_i <- lapply(total_intensity_fabio, function(d) {
   FP_trans = p_fabio_exio %*% (t(d) * colSums(FABIO_x_in_EXIO))
   intensity = t(FP_trans / FABIO_x )
@@ -120,7 +121,6 @@ l_int_i <- lapply(total_intensity_fabio, function(d) {
 names(l_int_i) <- c("en", "hr_m", "hr_f")
 saveRDS(l_int_i, file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-# This gives an intensity matrix (in the same dim as satellite (8575x23001)).
 
 
 

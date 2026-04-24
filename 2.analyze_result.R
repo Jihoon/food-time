@@ -6,33 +6,14 @@ data(countrypops)
 
 #### 1. Energy and Labor footprint ####
 
-# Total consumption-based footprint per country (23001 x 187)
-# By taking Diagonal(), we preserve the origin information in the intensity vectors. Target info is lost.
-# which can be good enough.
-
-
-# food-sector footprints
-l_int_d = readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
-l_int_i = readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
+# Load economic (direct food sector) and non-economic (indirect non-food sector) satellite data
+l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
+l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
 # Footprint summed at the FABIO country level
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
-# fp_nonfood <- lapply(l_int_i, function(d) d %*% FABIO_x_hh)
-n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
-# fp_nonfood <- lapply(l_int_i, function(d) {
-#   fp <- matrix(0, nrow = n_nf * nrreg, ncol = nrreg)
-#   fp <- as(fp, "CsparseMatrix")
-#   B_i <- matrix(0, nrcom*nrreg, nrreg)
-#   for (i in 1:nrreg) {
-#     A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
-#     for (k in 1:nrreg) {
-#       B_i[((k-1)*nrcom + 1):(k*nrcom), k] <- FABIO_x_hh[((k-1)*nrcom + 1):(k*nrcom), i]
-#     }
-#     fp[((i-1)*n_nf + 1):(i*n_nf), ] <- A_i %*% B_i
-#   }
-#   fp
-# })
 
+n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
 fp_nonfood <- lapply(l_int_i, function(d) {
   fp_list <- vector("list", nrreg)
   for (i in 1:nrreg) {
@@ -348,6 +329,7 @@ summary_time_kcal = summary_food_df_long_with_ghd %>%
 # All countries
 df_convfac_kcal_econ = summary_time_kcal %>% filter(grepl("per_capita", footprint_type_time)) 
 
+# Countries with non-economic observations - this will be a subset of df_convfac_kcal_econ but with additional rows for non-economic footprint types (preparation_non.econ, processing_non.econ, growth_collection_non.econ)
 df_convfac_kcal_nonecon = summary_time_kcal %>% filter(country %in% cty_ghd) 
 
 # Plot the distribution of hr/kcal conversion factors by country and by type (domestic, export, import) with different colors for type and different facets for hr_m and hr_f.
@@ -356,14 +338,15 @@ v_ord_econ = (df_convfac_kcal_econ %>%
            filter(type %in% c("hr_f"), cat=="domestic") %>% 
            # group_by(country) %>% 
            arrange(-hr_per_2000kcal))$country
-v_ord_all = (df_convfac_kcal_nonecon %>% 
+v_ord_alltime = (df_convfac_kcal_nonecon %>% 
                filter(type %in% c("hr_f"), cat=="domestic") %>% 
                group_by(country) %>% summarise(d = sum(hr_per_2000kcal, na.rm=TRUE)) %>%
                arrange(-d))$country
 
 # Plot only the economic conversion factors first, and then add the non-economic ones as a separate plot. This way we can see the difference between the two and also avoid having too many bars in one plot.
 p_conversion_kcal_econ = ggplot(df_convfac_kcal_econ %>% 
-                                  filter(footprint_type_time=="domestic_per_capita") %>%
+                                  # For certain export, this can lead to very high hr_per_2000kcal values which can make the plot hard to read. So we can filter out those extreme values for better visualization.
+                                  filter(footprint_type_time=="domestic_per_capita") %>% 
                                   select(country, type, footprint_type_time, hr_per_2000kcal) %>%
                                   mutate(country = factor(country, levels = v_ord_econ)),
                                 aes(x=country, y=hr_per_2000kcal, fill=footprint_type_time)) +
@@ -379,7 +362,7 @@ p_conversion_kcal_econ = ggplot(df_convfac_kcal_econ %>%
 # And have different facets for hr_m and hr_f
 p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
                                 select(country, type, footprint_type_time, hr_per_2000kcal) %>%
-                                mutate(country = factor(country, levels = v_ord_all)),
+                                mutate(country = factor(country, levels = v_ord_alltime)),
                               aes(x=country, y=hr_per_2000kcal, fill=footprint_type_time)) +
   geom_bar(stat="identity", position="stack") +
   facet_wrap(~type, ncol=1, scales = "fixed") +
@@ -394,24 +377,24 @@ p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
                              "preparation_econ" = "#1f2eb4")) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))                              
 
-v_ord.tot = (summary_time_kcal %>% drop_na() %>%
-           filter(type %in% c("hr_f")) %>% 
-           # group_by(country) %>% 
-           arrange(-domestic_hr_per_2000kcal.tot))$country
-p_conversion_kcal = ggplot(summary_time_kcal %>% drop_na() %>%
-                             select(country, type, domestic_hr_per_2000kcal.tot) %>%
-                             pivot_longer(cols = starts_with(c("domestic", "export", "import")), 
-                                          names_to = "footprint_type", values_to = "hr_per_2000kcal") %>% 
-                             mutate(country = factor(country, levels = v_ord.tot)),
-                           aes(x=country, y=hr_per_2000kcal, fill=footprint_type)) +
-  geom_bar(stat="identity", position="stack") +
-  facet_wrap(~type, ncol=1, scales = "fixed") +
-  labs(x="Country (ISO3)", y="Time per 2000 kcal (hr/2000kcal)", fill="Footprint type",
-       title=paste0("Time per 2000 kcal conversion factors by country (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  scale_fill_manual(values=c("domestic_hr_per_2000kcal"="#1f77b4", "export_hr_per_2000kcal"="#2ca02c", "import_hr_per_2000kcal"="#ff7f0e")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))      
+# v_ord.tot = (summary_time_kcal %>% drop_na() %>%
+#            filter(type %in% c("hr_f")) %>% 
+#            group_by(country) %>% summarise(d = sum(hr_per_2000kcal, na.rm=TRUE)) %>%
+#            arrange(-hr_per_2000kcal))$country
+# p_conversion_kcal = ggplot(summary_time_kcal %>% drop_na() %>%
+#                              select(country, type, per_capita_value_time) %>%
+#                              pivot_longer(cols = starts_with(c("domestic", "export", "import")), 
+#                                           names_to = "footprint_type", values_to = "hr_per_2000kcal") %>% 
+#                              mutate(country = factor(country, levels = v_ord.tot)),
+#                            aes(x=country, y=hr_per_2000kcal, fill=footprint_type)) +
+#   geom_bar(stat="identity", position="stack") +
+#   facet_wrap(~type, ncol=1, scales = "fixed") +
+#   labs(x="Country (ISO3)", y="Time per 2000 kcal (hr/2000kcal)", fill="Footprint type",
+#        title=paste0("Time per 2000 kcal conversion factors by country (", year, ")")) +
+#   theme_minimal() +
+#   theme(legend.position = "top") +
+#   scale_fill_manual(values=c("domestic_hr_per_2000kcal"="#1f77b4", "export_hr_per_2000kcal"="#2ca02c", "import_hr_per_2000kcal"="#ff7f0e")) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))      
 
 
 # Do the same for protein
@@ -436,6 +419,7 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
 
 
 
+
 # library(ggplot2)
 # # Labor hours
 # ggplot(summary_food_df %>% filter(type %in% c("hr_m", "hr_f")) %>%
@@ -451,131 +435,126 @@ p_conversion_protein = plot_countries(summary_time_protein %>%
 #   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
 #   # Tilt x-axis labels
 #   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-# 
+#
 #   # Add import_per_capita values as negative y axis bars by gender
-#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")),
 #            aes(x=country, y=-import_per_capita, fill=type), stat="identity", position="stack") +
 #   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
-# 
+#
 #   # Stack export_per_capita values as positive y axis bars by gender
-#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")), 
+#   geom_bar(data = summary_food_df %>% filter(type %in% c("hr_m", "hr_f")),
 #            aes(x=country, y=export_per_capita, fill=type), stat="identity", position="stack") +
 #   scale_fill_manual(values=c("hr_m"="#1f77b4", "hr_f"="#2ca02c")) +
-#   
+#
 #   labs(fill="hours by gender", title=paste0("Food-related time footprint per capita by country (", year, ")\n(positive: domestic+export, negative: import)"))
-  
 
 
 
-# energy_fp = Matrix::Diagonal(x=FABIO_en_int_d) %*% FABIO_x_hh #TJ = EJ/10^6 (sum = 22.5 EJ)
-# # Note: "In the United States, food production uses 10.11 quadrillion Btu annually" = 10.7 EJ
-# hr_m_fp = Matrix::Diagonal(x=FABIO_hr_m_int_d) %*% FABIO_x_hh #M.hr
-# hr_f_fp = Matrix::Diagonal(x=FABIO_hr_f_int_d) %*% FABIO_x_hh #M.hr 
-# 
-# colnames(energy_fp) = colnames(hr_m_fp) = colnames(hr_f_fp) = regions$iso3c
+# Aggregate indirect (non-food sector) intensities to FABIO-product level
+l_int_i_agg <- lapply(l_int_i, colSums)
 
-# Country-wise consumption-based footprint 
+# Country-wise consumption-based footprint
 
-consumption = "food" # FABIO FD category
-country = "KOR"
-extension = "hr_m_int_d" #"en_int_d", "hr_f_int_d"
+consumption = "food"
 
 for (country in regions$iso3c) {
-  
-  for (extension in names(l_int)) {
-    print(paste("Calculating", extension, "footprint for", country))
+
+  Y_country <- FABIO_y[, which(fd$iso3c == country)]
+  colnames(Y_country) <- fd$fd[fd$iso3c == country]
+
+  pop = subset(countrypops, country_code_3 == country & year == yr)$population
+  if (country %in% setdiff(regions$iso3c, unique(countrypops$country_code_3))) {pop=NA}
+
+  for (extension in names(l_int_d)) {
+    for (sector in c("food", "non_food")) {
+
+      int <- if (sector == "food") l_int_d[[extension]] else l_int_i_agg[[extension]]
+
+      print(paste("Calculating", extension, sector, "footprint for", country))
     
-    Y_country <- FABIO_y[, which(fd$iso3c == country)]
-    # Y_country <- Yi[, fd$iso3c == country]
-    colnames(Y_country) <- fd$fd[fd$iso3c == country]
-    
-    pop = subset(countrypops, country_code_3 == country & year == yr)$population
-    if (country %in% setdiff(regions$iso3c, unique(countrypops$country_code_3))) {pop=NA}
-    
-    print(paste("Population =", pop))
-    
-    # if(spread_stocks){
-    #   stock_ratio <- Y_country[, "stock_addition"] / (rowSums(Y_country) - Y_country[, "stock_addition"])
-    #   stock_ratio[!is.finite(stock_ratio)] <- 0
-    #   Y_country <- as.data.table(as.matrix(Y_country))
-    #   Y_country[, `:=`(food = food * (1 + stock_ratio),
-    #                    other = other * (1 + stock_ratio),
-    #                    tourist = tourist * (1 + stock_ratio),
-    #                    unspecified = unspecified * (1 + stock_ratio),
-    #                    stock_addition = 0)]
-    # }
-    
-    int <- l_int[[extension]]
-    MP <- int * FABIO_L
-    
-    # Initialize empty matrix to store results (row: exporter, col: importer)
-    mat <- matrix(0, nrow=nrreg, ncol = nrreg, byrow=TRUE)
-    rownames(mat) <- colnames(mat) <- sort(regions$iso3c)
-    
-    # Calculate footprints (energy & labor hr)
-    country_consump = as.vector(as.matrix(Y_country[, consumption]))
-    FP <- t(t(MP) * country_consump) # <= dim (23001x23001)
-    colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
-    FP <- as(FP, "TsparseMatrix")
-    
-    # Calculate calorie & protein production/consumption 
-    x_country = t(t(FABIO_L) * country_consump) # mass flows
-    # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
-    FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
-    FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
-    colnames(FP_cal) <- rownames(FP_cal) <- colnames(FP_pro) <- rownames(FP_pro) <- paste0(io$iso3c, "_", io$item)
-    FP_cal <- as(FP_cal, "TsparseMatrix")
-    FP_pro <- as(FP_pro, "TsparseMatrix")
-    
-    cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
-    pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
-    
-    results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
-                          value = FP@x, # M.hr
-                          value_pcap = FP@x / pop * 1e6, # hr/cap (for labor)
-                          cal = FP_cal@x,
-                          cal_pcap = FP_cal@x / pop, # kcal per capita
-                          pro = FP_pro@x,
-                          pro_pcap = FP_pro@x / pop  # g-protein per capita
-    ) 
-    results[,`:=`(country_consumer = country,
-                  year = year,
-                  indicator = extension,
-                  country_origin = substr(origin,1,3),
-                  item_origin = substr(origin,5,100),
-                  country_target = substr(target,1,3),
-                  item_target = substr(target,5,100))]
-    
-    results[,`:=`(group_origin = items$comm_group[match(results$item_origin,items$item)],
-                  group_target = items$comm_group[match(results$item_target,items$item)],
-                  continent_origin = regions$continent[match(results$country_origin, regions$iso3c)])]
-    
-    results$continent_origin[results$country_origin==country] <- country
-    
-    # Remove "Live animals" from the nutrient flows
-    # CHECK: Need to be in energy/labor footprints?
-    results = results %>%
-      filter(group_origin != "Live animals")
-    
-    # print(paste(country, "ratio of FD vs. production:", 
-    #             round(sum(as.matrix(Y_country)[, consumption]) / sum(results$value),4)))
-    
-    data_tot <- results %>%
-      group_by(item_target, country_origin) %>%
-      filter(value != 0) %>%
-      summarise(value = (sum(value))) %>%
-      spread(country_origin, value, fill = 0) %>% # Al
-      # Add a row with column sums
-      ungroup() %>%
-      bind_rows(summarise(., item_target = "Total", across(-item_target, sum)))
-    
-    data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", consumption,".csv"), sep=",")
-    
-    data_imp_tot = tail(data_tot, 1) %>% rename(importer = item_target) %>% mutate(importer = country)
-    
-    # Fill mat with data_imp_tot where rownames(mat) match names(data_imp_tot), and colnames(mat) match data_imp_tot$importer
-    mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <- 
-      as.numeric(data_imp_tot[1, names(data_imp_tot) %in% rownames(mat)])
+      # if(spread_stocks){
+      #   stock_ratio <- Y_country[, "stock_addition"] / (rowSums(Y_country) - Y_country[, "stock_addition"])
+      #   stock_ratio[!is.finite(stock_ratio)] <- 0
+      #   Y_country <- as.data.table(as.matrix(Y_country))
+      #   Y_country[, `:=`(food = food * (1 + stock_ratio),
+      #                    other = other * (1 + stock_ratio),
+      #                    tourist = tourist * (1 + stock_ratio),
+      #                    unspecified = unspecified * (1 + stock_ratio),
+      #                    stock_addition = 0)]
+      # }
+      
+      MP <- int * FABIO_L
+      
+      # Initialize empty matrix to store results (row: exporter, col: importer)
+      mat <- matrix(0, nrow=nrreg, ncol = nrreg, byrow=TRUE)
+      rownames(mat) <- colnames(mat) <- sort(regions$iso3c)
+      
+      # Calculate footprints (energy & labor hr)
+      country_consump = as.vector(as.matrix(Y_country[, consumption]))
+      FP <- t(t(MP) * country_consump) # <= dim (23001x23001)
+      colnames(FP) <- rownames(FP) <- paste0(io$iso3c, "_", io$item)
+      FP <- as(FP, "TsparseMatrix")
+      
+      # Calculate calorie & protein production/consumption 
+      x_country = t(t(FABIO_L) * country_consump) # mass flows
+      # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
+      FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
+      FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
+      colnames(FP_cal) <- rownames(FP_cal) <- colnames(FP_pro) <- rownames(FP_pro) <- paste0(io$iso3c, "_", io$item)
+      FP_cal <- as(FP_cal, "TsparseMatrix")
+      FP_pro <- as(FP_pro, "TsparseMatrix")
+      
+      cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
+      pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
+      
+      results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
+                            value = FP@x, # M.hr
+                            value_pcap = FP@x / pop * 1e6, # hr/cap (for labor)
+                            cal = FP_cal@x,
+                            cal_pcap = FP_cal@x / pop, # kcal per capita
+                            pro = FP_pro@x,
+                            pro_pcap = FP_pro@x / pop  # g-protein per capita
+      ) 
+      results[,`:=`(country_consumer = country,
+                    year = year,
+                    indicator = extension,
+                    sector = sector,
+                    country_origin = substr(origin,1,3),
+                    item_origin = substr(origin,5,100),
+                    country_target = substr(target,1,3),
+                    item_target = substr(target,5,100))]
+      
+      results[,`:=`(group_origin = items$comm_group[match(results$item_origin,items$item)],
+                    group_target = items$comm_group[match(results$item_target,items$item)],
+                    continent_origin = regions$continent[match(results$country_origin, regions$iso3c)])]
+      
+      results$continent_origin[results$country_origin==country] <- country
+      
+      # Remove "Live animals" from the nutrient flows
+      # CHECK: Need to be in energy/labor footprints?
+      results = results %>%
+        filter(group_origin != "Live animals")
+      
+      # print(paste(country, "ratio of FD vs. production:", 
+      #             round(sum(as.matrix(Y_country)[, consumption]) / sum(results$value),4)))
+      
+      data_tot <- results %>%
+        group_by(item_target, country_origin) %>%
+        filter(value != 0) %>%
+        summarise(value = (sum(value))) %>%
+        spread(country_origin, value, fill = 0) %>% # Al
+        # Add a row with column sums
+        ungroup() %>%
+        bind_rows(summarise(., item_target = "Total", across(-item_target, sum)))
+      
+      data.table::fwrite(data_tot, file=paste0("output/FABIO_", country,"_", year, "_", extension, "_", sector, "_", consumption,".csv"), sep=",")
+
+      data_imp_tot = tail(data_tot, 1) %>% rename(importer = item_target) %>% mutate(importer = country)
+
+      # Fill mat with data_imp_tot where rownames(mat) match names(data_imp_tot), and colnames(mat) match data_imp_tot$importer
+      mat[rownames(mat) %in% names(data_imp_tot), data_imp_tot$importer[1]] <-
+        as.numeric(data_imp_tot[1, names(data_imp_tot) %in% rownames(mat)])
+    }
   }
 }
 
