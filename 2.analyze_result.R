@@ -469,25 +469,24 @@ ggsave("results/conversion_protein_nonecon.pdf", p_conversion_protein_nonecon, w
 
 #### USA spotlight ####
 
-# Combine food-sector (direct) + non-food-sector (indirect) for labor and energy,
-# then join with kcal and protein supply to show all dimensions side by side.
+usa_pop = subset(countrypops, year == yr & country_code_3 == "USA")$population
+
+# ── Figure 1: food/nonfood sector breakdown per flow type ─────────────────────
 
 usa_time_energy = bind_rows(
-  summary_food_df_long    %>% mutate(sector = "food"),
-  summary_nonfood_df_long %>% mutate(sector = "nonfood")
+  summary_food_df_long    %>% mutate(sector = "food sector"),
+  summary_nonfood_df_long %>% mutate(sector = "non-food sector")
 ) %>%
   filter(as.character(country) == "USA") %>%
-  group_by(type, footprint_type) %>%
-  summarise(per_capita_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
   mutate(footprint_type = as.character(footprint_type),
          per_capita_value = ifelse(type == "en", per_capita_value / 1e3, per_capita_value))
 
 usa_nutrition = bind_rows(
-  summary_kcal_df_long %>% mutate(type = "kcal"),
-  summary_pro_df_long  %>% mutate(type = "protein")
+  summary_kcal_df_long %>% mutate(type = "kcal",    sector = "—"),
+  summary_pro_df_long  %>% mutate(type = "protein", sector = "—")
 ) %>%
   filter(as.character(country) == "USA") %>%
-  select(type, footprint_type, per_capita_value) %>%
+  select(type, footprint_type, per_capita_value, sector) %>%
   mutate(footprint_type = as.character(footprint_type))
 
 usa_spotlight = bind_rows(usa_time_energy, usa_nutrition) %>%
@@ -503,16 +502,60 @@ usa_spotlight = bind_rows(usa_time_energy, usa_nutrition) %>%
                  "Energy\n(GJ/cap/yr)", "Food supply\n(kcal/cap/day)", "Protein supply\n(g/cap/day)"))
   )
 
-p_usa = ggplot(usa_spotlight, aes(x = flow, y = per_capita_value, fill = flow)) +
-  geom_col(width = 0.6) +
+p_usa = ggplot(usa_spotlight, aes(x = flow, y = per_capita_value, fill = sector)) +
+  geom_col(width = 0.6, position = "stack") +
   facet_wrap(~metric, scales = "free_y", nrow = 1) +
-  scale_fill_manual(values = c("domestic" = "#1f77b4", "export" = "#2ca02c", "import" = "#ff7f0e")) +
-  labs(x = NULL, y = NULL, fill = NULL,
+  scale_fill_manual(values = c("food sector" = "#4e9af1", "non-food sector" = "#f1884e",
+                               "—" = "#aaaaaa")) +
+  labs(x = NULL, y = NULL, fill = "Sector",
        title = paste0("USA food system footprint per capita (", year, ")")) +
   theme_minimal() +
   theme(legend.position = "top", strip.text = element_text(size = 10))
 
 ggsave("results/usa_spotlight.pdf", p_usa, width = 14, height = 5)
+
+# ── Figure 2: source/destination continent breakdown for trade flows ──────────
+
+get_continent_flows = function(l_country, sector_name) {
+  bind_rows(lapply(names(l_country), function(metric) {
+    mat  = l_country[[metric]]
+    cty  = colnames(mat)
+    cont = regions$continent[match(cty, regions$iso3c)]
+    not_usa = cty != "USA"
+
+    exp_by_cont = tapply(mat["USA", not_usa], cont[not_usa], sum, na.rm = TRUE)
+    imp_by_cont = tapply(mat[not_usa, "USA"], cont[not_usa], sum, na.rm = TRUE)
+
+    # Normalize: energy TJ → GJ/cap/yr; labor M.hour → hr/cap/day
+    denom = if (metric == "en") usa_pop / 1e3 else usa_pop / 1e6 * 365
+
+    bind_rows(
+      data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom,
+                 flow = "export"),
+      data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom,
+                 flow = "import")
+    ) %>% mutate(metric = metric, sector = sector_name)
+  }))
+}
+
+usa_cont_flows = bind_rows(
+  get_continent_flows(l_food_country,    "food sector"),
+  get_continent_flows(l_nonfood_country, "non-food sector")
+) %>%
+  mutate(metric = factor(metric,
+    levels = c("hr_f", "hr_m", "en"),
+    labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)", "Energy\n(GJ/cap/yr)")))
+
+p_usa_continent = ggplot(usa_cont_flows, aes(x = flow, y = value, fill = continent)) +
+  geom_col(width = 0.6, position = "stack") +
+  facet_grid(metric ~ sector, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = NULL, y = NULL, fill = "Continent",
+       title = paste0("USA food trade flows by continent (", year, ")")) +
+  theme_minimal() +
+  theme(legend.position = "right", strip.text = element_text(size = 10))
+
+ggsave("results/usa_continent.pdf", p_usa_continent, width = 10, height = 10)
 
 
 #### Energy-time tradeoff ####
