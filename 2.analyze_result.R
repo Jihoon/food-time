@@ -329,6 +329,7 @@ summary_time_kcal = summary_food_df_long_with_ghd %>%
 # All countries
 df_convfac_kcal_econ = summary_time_kcal %>% filter(grepl("per_capita", footprint_type_time)) 
 
+# Countries with non-economic observations - this will be a subset of df_convfac_kcal_econ but with additional rows for non-economic footprint types (preparation_non.econ, processing_non.econ, growth_collection_non.econ)
 df_convfac_kcal_nonecon = summary_time_kcal %>% filter(country %in% cty_ghd) 
 
 # Plot the distribution of hr/kcal conversion factors by country and by type (domestic, export, import) with different colors for type and different facets for hr_m and hr_f.
@@ -337,14 +338,15 @@ v_ord_econ = (df_convfac_kcal_econ %>%
            filter(type %in% c("hr_f"), cat=="domestic") %>% 
            # group_by(country) %>% 
            arrange(-hr_per_2000kcal))$country
-v_ord_all = (df_convfac_kcal_nonecon %>% 
+v_ord_alltime = (df_convfac_kcal_nonecon %>% 
                filter(type %in% c("hr_f"), cat=="domestic") %>% 
                group_by(country) %>% summarise(d = sum(hr_per_2000kcal, na.rm=TRUE)) %>%
                arrange(-d))$country
 
 # Plot only the economic conversion factors first, and then add the non-economic ones as a separate plot. This way we can see the difference between the two and also avoid having too many bars in one plot.
 p_conversion_kcal_econ = ggplot(df_convfac_kcal_econ %>% 
-                                  filter(footprint_type_time=="domestic_per_capita") %>%
+                                  # For certain export, this can lead to very high hr_per_2000kcal values which can make the plot hard to read. So we can filter out those extreme values for better visualization.
+                                  filter(footprint_type_time=="domestic_per_capita") %>% 
                                   select(country, type, footprint_type_time, hr_per_2000kcal) %>%
                                   mutate(country = factor(country, levels = v_ord_econ)),
                                 aes(x=country, y=hr_per_2000kcal, fill=footprint_type_time)) +
@@ -360,7 +362,7 @@ p_conversion_kcal_econ = ggplot(df_convfac_kcal_econ %>%
 # And have different facets for hr_m and hr_f
 p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
                                 select(country, type, footprint_type_time, hr_per_2000kcal) %>%
-                                mutate(country = factor(country, levels = v_ord_all)),
+                                mutate(country = factor(country, levels = v_ord_alltime)),
                               aes(x=country, y=hr_per_2000kcal, fill=footprint_type_time)) +
   geom_bar(stat="identity", position="stack") +
   facet_wrap(~type, ncol=1, scales = "fixed") +
@@ -375,24 +377,24 @@ p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
                              "preparation_econ" = "#1f2eb4")) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))                              
 
-v_ord.tot = (summary_time_kcal %>% drop_na() %>%
-           filter(type %in% c("hr_f")) %>% 
-           # group_by(country) %>% 
-           arrange(-domestic_hr_per_2000kcal.tot))$country
-p_conversion_kcal = ggplot(summary_time_kcal %>% drop_na() %>%
-                             select(country, type, domestic_hr_per_2000kcal.tot) %>%
-                             pivot_longer(cols = starts_with(c("domestic", "export", "import")), 
-                                          names_to = "footprint_type", values_to = "hr_per_2000kcal") %>% 
-                             mutate(country = factor(country, levels = v_ord.tot)),
-                           aes(x=country, y=hr_per_2000kcal, fill=footprint_type)) +
-  geom_bar(stat="identity", position="stack") +
-  facet_wrap(~type, ncol=1, scales = "fixed") +
-  labs(x="Country (ISO3)", y="Time per 2000 kcal (hr/2000kcal)", fill="Footprint type",
-       title=paste0("Time per 2000 kcal conversion factors by country (", year, ")")) +
-  theme_minimal() +
-  theme(legend.position = "top") +
-  scale_fill_manual(values=c("domestic_hr_per_2000kcal"="#1f77b4", "export_hr_per_2000kcal"="#2ca02c", "import_hr_per_2000kcal"="#ff7f0e")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))      
+# v_ord.tot = (summary_time_kcal %>% drop_na() %>%
+#            filter(type %in% c("hr_f")) %>% 
+#            group_by(country) %>% summarise(d = sum(hr_per_2000kcal, na.rm=TRUE)) %>%
+#            arrange(-hr_per_2000kcal))$country
+# p_conversion_kcal = ggplot(summary_time_kcal %>% drop_na() %>%
+#                              select(country, type, per_capita_value_time) %>%
+#                              pivot_longer(cols = starts_with(c("domestic", "export", "import")), 
+#                                           names_to = "footprint_type", values_to = "hr_per_2000kcal") %>% 
+#                              mutate(country = factor(country, levels = v_ord.tot)),
+#                            aes(x=country, y=hr_per_2000kcal, fill=footprint_type)) +
+#   geom_bar(stat="identity", position="stack") +
+#   facet_wrap(~type, ncol=1, scales = "fixed") +
+#   labs(x="Country (ISO3)", y="Time per 2000 kcal (hr/2000kcal)", fill="Footprint type",
+#        title=paste0("Time per 2000 kcal conversion factors by country (", year, ")")) +
+#   theme_minimal() +
+#   theme(legend.position = "top") +
+#   scale_fill_manual(values=c("domestic_hr_per_2000kcal"="#1f77b4", "export_hr_per_2000kcal"="#2ca02c", "import_hr_per_2000kcal"="#ff7f0e")) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))      
 
 
 # Do the same for protein
