@@ -848,7 +848,26 @@ p_sankey_pro = sankeyNetwork(
 htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
 
-prod_cty <- data.frame(iso3c = rownames(mat), 
+# Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
+for (sector in c("food", "nonfood")) {
+  l_country = if (sector == "food") l_food_country else l_nonfood_country
+  for (metric in c("en", "hr_m", "hr_f")) {
+    scale = if (metric == "en") 1e6 else 1e3
+    unit  = if (metric == "en") "EJ" else "Ghr"
+    mat_cont = agg_to_continent(l_country[[metric]])
+    sk = mat_to_sankey(mat_cont, scale = scale)
+    p  = sankeyNetwork(
+      Links = sk$links, Nodes = sk$nodes,
+      Source = "source", Target = "target", Value = "value", NodeID = "name",
+      sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+      units = unit
+    )
+    htmlwidgets::saveWidget(p, paste0("results/sankey_", sector, "_", metric, ".html"),
+                            selfcontained = FALSE)
+  }
+}
+
+prod_cty <- data.frame(iso3c = rownames(mat),
                        dom_consump = diag(mat), 
                        export = -(rowSums(mat) - diag(mat)),
                        import = colSums(mat) - diag(mat)) %>%
