@@ -463,6 +463,7 @@ p_conversion_protein_nonecon = ggplot(
 
 
 #### Energy-time tradeoff ####
+library(ggrepel)
 
 # Energy conversion factors (food sector, per unit nutrition)
 # Energy is MJ/cap/year; divide by 365 for daily basis consistent with time (hr/cap/day)
@@ -844,8 +845,8 @@ p_sankey_pro = sankeyNetwork(
   units = "kt protein"
 )
 
-htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = TRUE)
-htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = TRUE)
+htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = FALSE)
+htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
 
 prod_cty <- data.frame(iso3c = rownames(mat), 
                        dom_consump = diag(mat), 
