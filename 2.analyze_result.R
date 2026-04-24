@@ -306,6 +306,8 @@ summary_pro_df_long = df_nutri[["protein"]] %>%
 
 p_kcal = plot_countries(summary_kcal_df_long, "Daily kcal supply per capita (kcal/cap/day)", "kcal")
 p_protein = plot_countries(summary_pro_df_long, "Daily protein supply per capita (g/cap/day)", "protein")
+ggsave("results/kcal_supply.pdf",    p_kcal,    width = 18, height = 6)
+ggsave("results/protein_supply.pdf", p_protein, width = 18, height = 6)
 
 
 # Derive time conversion factors
@@ -375,7 +377,9 @@ p_conversion_kcal_nonecon = ggplot(df_convfac_kcal_nonecon %>%
                              "processing_non.econ" = "#f542f5", 
                              "growth_collection_non.econ" = "#bc36dd", 
                              "preparation_econ" = "#1f2eb4")) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))                              
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("results/conversion_kcal_econ.pdf",    p_conversion_kcal_econ,    width = 18, height = 8)
+ggsave("results/conversion_kcal_nonecon.pdf", p_conversion_kcal_nonecon, width = 18, height = 8)
 
 # v_ord.tot = (summary_time_kcal %>% drop_na() %>%
 #            filter(type %in% c("hr_f")) %>% 
@@ -459,6 +463,8 @@ p_conversion_protein_nonecon = ggplot(
                                "growth_collection_non.econ" = "#ce0303",
                                "preparation_econ"           = "#8610ca")) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("results/conversion_protein_econ.pdf",    p_conversion_protein_econ,    width = 18, height = 8)
+ggsave("results/conversion_protein_nonecon.pdf", p_conversion_protein_nonecon, width = 18, height = 8)
 
 
 
