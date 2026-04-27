@@ -504,25 +504,28 @@ make_continent_data = function(iso) {
   pop = subset(countrypops, year == yr & country_code_3 == iso)$population
   bind_rows(lapply(list("food sector" = l_food_country, "non-food sector" = l_nonfood_country),
                    function(l_country) {
-    bind_rows(lapply(names(l_country), function(metric) {
-      mat  = l_country[[metric]]
-      cty  = colnames(mat)
-      cont = regions$continent[match(cty, regions$iso3c)]
-      not_focal = cty != iso
+    bind_rows(lapply(names(l_country), 
+      function(metric) {
+        mat  = l_country[[metric]]
+        cty  = colnames(mat)
+        cont = regions$continent[match(cty, regions$iso3c)]
+        not_focal = cty != iso
 
-      exp_by_cont = tapply(mat[iso, not_focal],  cont[not_focal], sum, na.rm = TRUE)
-      imp_by_cont = tapply(mat[not_focal, iso],  cont[not_focal], sum, na.rm = TRUE)
+        exp_by_cont = tapply(mat[iso, not_focal],  cont[not_focal], sum, na.rm = TRUE)
+        imp_by_cont = tapply(mat[not_focal, iso],  cont[not_focal], sum, na.rm = TRUE)
 
-      denom = if (metric == "en") pop / 1e3 else pop / 1e6 * 365
+        denom = if (metric == "en") pop / 1e3 else pop / 1e6 * 365
 
-      bind_rows(
-        data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom,
-                   flow = "export"),
-        data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom,
-                   flow = "import")
-      ) %>% mutate(metric = metric)
-    }))
-  }, .id = "sector")) %>%
+        bind_rows(
+          data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom,
+                    flow = "export"),
+          data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom,
+                    flow = "import")
+        ) %>% mutate(metric = metric)
+      }
+      )
+    )
+  }), .id = "sector") %>%
     mutate(metric = factor(metric,
       levels = c("hr_f", "hr_m", "en"),
       labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)", "Energy\n(GJ/cap/yr)")))
