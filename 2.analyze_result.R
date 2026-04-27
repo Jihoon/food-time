@@ -629,14 +629,14 @@ tradeoff_protein_full = summary_time_protein %>%
 # Scatter plot helper: energy (x) vs time (y), sized by nutrition supply per capita
 tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab, title) {
   ggplot(df, aes(x = .data[[x_col]], y = .data[[y_col]], size = .data[[size_col]],
-                 color = continent, shape = type, label = country)) +
+                 color = continent, label = country)) +
     geom_point(alpha = 0.7) +
     ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE) +
-    scale_shape_manual(values = c("hr_m" = 16, "hr_f" = 17),
-                       labels = c("hr_m" = "Male", "hr_f" = "Female")) +
     scale_size_continuous(range = c(1, 8)) +
+    facet_wrap(~type, nrow = 1,
+               labeller = labeller(type = c("hr_m" = "Male", "hr_f" = "Female"))) +
     labs(x = x_lab, y = y_lab, size = size_lab,
-         color = "Continent", shape = "Gender", title = title) +
+         color = "Continent", title = title) +
     theme_minimal() +
     theme(legend.position = "right")
 }
@@ -667,8 +667,8 @@ p_tradeoff_econ = (p_tradeoff_kcal_econ | p_tradeoff_protein_econ) +
 p_tradeoff_full = (p_tradeoff_kcal_full | p_tradeoff_protein_full) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
 
-ggsave(paste0("results/tradeoff_econ.pdf"), p_tradeoff_econ, width = 16, height = 8)
-ggsave(paste0("results/tradeoff_full.pdf"), p_tradeoff_full, width = 16, height = 8)
+ggsave(paste0("results/tradeoff_econ.pdf"), p_tradeoff_econ, width = 20, height = 8)
+ggsave(paste0("results/tradeoff_full.pdf"), p_tradeoff_full, width = 20, height = 8)
 
 
 
