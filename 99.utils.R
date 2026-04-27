@@ -197,7 +197,7 @@ plot_countries <- function(df, ylabel, maintitle) {
   # print(name_dom, name_exp, name_imp)
   print(footprint_types)
 
-  c_scheme = c(name_dom="#1f77b4", name_exp="#2ca02c", name_imp="#ff7f0e")  
+  c_scheme = setNames(c("#1f77b4", "#2ca02c", "#ff7f0e"), c(name_dom, name_exp, name_imp))
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp
