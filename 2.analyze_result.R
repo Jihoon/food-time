@@ -522,7 +522,7 @@ make_continent_data = function(iso) {
                    flow = "import")
       ) %>% mutate(metric = metric)
     }))
-  }, .id = "sector") %>%
+  }, .id = "sector")) %>%
     mutate(metric = factor(metric,
       levels = c("hr_f", "hr_m", "en"),
       labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)", "Energy\n(GJ/cap/yr)")))
