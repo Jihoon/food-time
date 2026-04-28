@@ -1,10 +1,20 @@
 library(tidyverse)
 library(Matrix)
 
+# Population
+library(gt)
+data(countrypops)
 
 # Key parameters for config
 year = yr = 2020  # Year when both labor and energy satellites are available
 type = "pxp"
+
+# Population data for per capita calculations
+pop_y = subset(countrypops, year == yr) %>%
+  select(iso3c = country_code_3, pop = population)
+
+pop_y = pop_y %>% right_join(regions, by = "iso3c") %>%
+  select(iso3c, pop)
 
 # Set up paths for data loading
 EXIO_path = paste0("H:/MyDocuments/Data/EXIOBASE3/IOT_", year, "_", type)

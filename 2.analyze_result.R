@@ -1,8 +1,5 @@
 #### Result analysis ####
 
-# Population
-library(gt)
-data(countrypops)
 
 #### 1. Energy and Labor footprint ####
 
@@ -859,12 +856,6 @@ mat_cons_net[mat_cons_net < 3e9] <- 0
 
 
 # Look into individual countries
-
-pop_y = subset(countrypops, year == yr) %>%
-  select(iso3c = country_code_3, pop = population)
-
-pop_y = pop_y %>% right_join(regions, by = "iso3c") %>%
-  select(iso3c, pop)
 
 cty = "USA"
 imp = round(mat_y[,cty] / pop_y$pop[pop_y$iso3c==cty] / 365, 4)

@@ -97,15 +97,51 @@ convert_intensities <- function(sat_EXIO) {
   exio_hr_m_intm_ordered = reorder_countries_to_FABIO(exio_hr_m_int)
   exio_hr_f_intm_ordered = reorder_countries_to_FABIO(exio_hr_f_int)
   
+  # Debugging: Check the top intensities of fish sectors in the ordered intensity vectors to see if they correspond to expected EXIO sectors and countries
+  fish_exio_hr_m_int = exio_hr_m_intm_ordered[fish_idx_l]
+  # top_fish_exio_hr_m_int = sort(fish_exio_hr_m_int, decreasing = TRUE)[1:10]
+  idx = order(fish_exio_hr_m_int, decreasing = TRUE)[1:20]
+  cat("Top EXIO sectors receiving fish (male) labor intensity (per ton):\n")
+  print(data.frame(sector = long_idx[fish_idx_l[idx]], intensity = fish_exio_hr_m_int[idx]))
+
+  fish_exio_hr_f_int = exio_hr_f_intm_ordered[fish_idx_l]
+  # top_fish_exio_hr_f_int = sort(fish_exio_hr_f_int, decreasing = TRUE)[1:10]
+  idx = order(fish_exio_hr_f_int, decreasing = TRUE)[1:20]
+  cat("Top EXIO sectors receiving fish (female) labor intensity (per ton):\n")
+  print(data.frame(sector = long_idx[fish_idx_l[idx]], intensity = fish_exio_hr_f_int[idx]))
+
   # Finally, calculate FABIO-based EXIO energy and labor use matrices for agri-food sects
   FABIO_en = FABIO_x_in_EXIO %*% Diagonal(x=exio_en_intm_ordered)
   FABIO_hr_m = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_m_intm_ordered)
   FABIO_hr_f = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_f_intm_ordered)
-  # This chuck doesn't work for (indirect) matrix satellites, since Diagonal() expects a vector.
+  # This chunk doesn't work for (indirect) matrix satellites, since Diagonal() expects a vector.
   
   # TODO: FABIO_x_in_EXIO need to be checked again for computing correct order, 
   # but looks ok for now since this will be run after convert_mass_vecs() is called.
   
+  # Debugging: Check the top values in the labor hours for FABIO fish sectors.
+  fish_fabio_hr_m = rowSums(FABIO_hr_m[fish_idx, ])
+  idx = order(fish_fabio_hr_m, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (male) labor hr:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_m = fish_fabio_hr_m[idx]))
+
+  fish_fabio_hr_f = rowSums(FABIO_hr_f[fish_idx, ])
+  idx = order(fish_fabio_hr_f, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (female) labor hr:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_f = fish_fabio_hr_f[idx]))
+
+  # Derive per-capita values for the top fish sectors in FABIO to check if they correspond to expected countries with high fish consumption/production.
+  fish_fabio_hr_m_cap = fish_fabio_hr_m / pop_y$pop[match(io$iso3c[fish_idx], pop_y$iso3c)] *2
+  idx = order(fish_fabio_hr_m_cap, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (male) labor hr per capita:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_m_cap = fish_fabio_hr_m_cap[idx]))
+
+  fish_fabio_hr_f_cap = fish_fabio_hr_f / pop_y$pop[match(io$iso3c[fish_idx], pop_y$iso3c)] *2 # Assume 1:1 gender ratio
+  idx = order(fish_fabio_hr_f_cap, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (female) labor hr per capita:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_f_cap = fish_fabio_hr_f_cap[idx]))
+
+
   return(list(sat_en_FAB = FABIO_en, 
               sat_hr_m_FAB = FABIO_hr_m, 
               sat_hr_f_FAB = FABIO_hr_f))
