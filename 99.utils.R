@@ -253,7 +253,7 @@ plot_countries <- function(df, ylabel, maintitle) {
   }
   
   # Get first work before "_" of part_negative to determine the type of footprint for labeling
-  neg_type = strsplit(part_negative, "_")[[1]][1]
+  neg_type = strsplit(as.character(part_negative), "_")[[1]][1]
   pos_type = ifelse(neg_type == "import", "export", "import")
   
   has_row <- "is_row" %in% colnames(df)

@@ -30,6 +30,11 @@ saveRDS(fp_nonfood, file = paste0("data/footprint_nonfood_", year, ".rds"))
 
 
 
+# Read the results back and do some validations
+fp_food = readRDS(file = paste0("data/footprint_food_", year, ".rds"))
+fp_nonfood = readRDS(file = paste0("data/footprint_nonfood_", year, ".rds"))
+
+
 #### 1.1. Aggregate all at country level ####
 
 # fp_food and fp_nonfood lists have three large matrices each, where rows are multiples of 187 (number of countries).
