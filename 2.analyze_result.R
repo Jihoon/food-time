@@ -136,10 +136,11 @@ summary_nonfood_df_long = summary_nonfood_df %>%
 summary_food_df_long_with_ghd = bind_rows(summary_food_df_long, df_ghd_combined) %>%
   arrange(country, type, footprint_type) %>%
   mutate(country = factor(country, levels = sum_ord),
-         footprint_type = factor(footprint_type, 
+         footprint_type = factor(footprint_type,
                                  levels = c("preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
-                                            "preparation_econ", 
-                                            "export_per_capita", "import_per_capita", "domestic_per_capita")))
+                                            "preparation_econ",
+                                            "export_per_capita", "import_per_capita", "domestic_per_capita"))) %>%
+  filter(!is.na(country))
 
 # Plot the results (all countries)
 
