@@ -582,7 +582,8 @@ tradeoff_kcal_econ = summary_time_kcal %>%
               select(country, mj_per_2000kcal, kcal_per_cap_day = per_capita_value_kcal),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
-  drop_na()
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
 
 tradeoff_protein_econ = summary_time_protein %>%
   filter(cat == "domestic", grepl("per_capita", footprint_type_time)) %>%
@@ -592,7 +593,8 @@ tradeoff_protein_econ = summary_time_protein %>%
               select(country, mj_per_100g_protein, g_protein_per_cap_day = per_capita_value_protein),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
-  drop_na()
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
 
 # Domestic tradeoff: total time (economic + non-economic), GHD countries only
 # Sum hr_per_2000kcal across all domestic footprint types per country+gender
@@ -605,7 +607,8 @@ tradeoff_kcal_full = summary_time_kcal %>%
               select(country, mj_per_2000kcal, kcal_per_cap_day = per_capita_value_kcal),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
-  drop_na()
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
 
 tradeoff_protein_full = summary_time_protein %>%
   filter(cat == "domestic", country %in% cty_ghd) %>%
@@ -616,14 +619,26 @@ tradeoff_protein_full = summary_time_protein %>%
               select(country, mj_per_100g_protein, g_protein_per_cap_day = per_capita_value_protein),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
-  drop_na()
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
 
 # Scatter plot helper: energy (x) vs time (y), sized by nutrition supply per capita
 tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab, title) {
-  ggplot(df, aes(x = .data[[x_col]], y = .data[[y_col]], size = .data[[size_col]],
-                 color = continent, label = country)) +
-    geom_point(alpha = 0.7) +
-    ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE) +
+  has_row <- "is_row" %in% colnames(df)
+  base_aes <- aes(x = .data[[x_col]], y = .data[[y_col]], size = .data[[size_col]],
+                  color = continent, label = country)
+  g <- ggplot(df, base_aes)
+  if (has_row) {
+    g <- g +
+      geom_point(aes(alpha = is_row)) +
+      ggrepel::geom_text_repel(aes(alpha = is_row), size = 2.5, max.overlaps = 20, show.legend = FALSE) +
+      scale_alpha_manual(values = c("TRUE" = 0.35, "FALSE" = 0.7), guide = "none")
+  } else {
+    g <- g +
+      geom_point(alpha = 0.7) +
+      ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE)
+  }
+  g +
     scale_size_continuous(range = c(1, 8)) +
     facet_wrap(~type, nrow = 1,
                labeller = labeller(type = c("hr_m" = "Male", "hr_f" = "Female"))) +
