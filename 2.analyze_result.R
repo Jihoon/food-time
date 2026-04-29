@@ -909,8 +909,27 @@ agg_to_continent <- function(mat) {
   mat_c
 }
 
-mat_kcal_cont = agg_to_continent(mat_y)      # kcal
-mat_pro_cont  = agg_to_continent(mat_y_pro)  # g protein
+# Aggregate country×country matrix to country level, collapsing small countries into
+# "Other {continent}" buckets. Diagonal (domestic flows) is zeroed out.
+agg_to_country_sankey <- function(mat, n_top = 20) {
+  cty   <- rownames(mat)
+  cont  <- regions$continent[match(cty, regions$iso3c)]
+
+  # Rank by total off-diagonal trade volume
+  off   <- mat; diag(off) <- 0
+  total <- rowSums(off) + colSums(off)
+  top   <- names(sort(total, decreasing = TRUE))[seq_len(min(n_top, length(cty)))]
+
+  labels <- ifelse(cty %in% top, cty,
+                   paste0("Other ", ifelse(is.na(cont), "World", cont)))
+
+  mat_agg        <- t(rowsum(t(rowsum(mat, group = labels)), group = labels))
+  diag(mat_agg)  <- 0  # remove domestic / intra-group flows
+  mat_agg
+}
+
+mat_kcal_cty = agg_to_country_sankey(mat_y)      # kcal
+mat_pro_cty  = agg_to_country_sankey(mat_y_pro)  # g protein
 
 # Convert continent×continent matrix to Sankey links/nodes
 # Producer nodes sit on the left, consumer nodes on the right (avoids self-loop issue)
@@ -929,8 +948,8 @@ mat_to_sankey <- function(mat, scale) {
   list(nodes = nodes, links = as.data.frame(links))
 }
 
-sankey_kcal = mat_to_sankey(mat_kcal_cont, scale = 1e12)  # display in Tcal
-sankey_pro  = mat_to_sankey(mat_pro_cont,  scale = 1e9)   # display in kt protein
+sankey_kcal = mat_to_sankey(mat_kcal_cty, scale = 1e12)  # display in Tcal
+sankey_pro  = mat_to_sankey(mat_pro_cty,  scale = 1e9)   # display in kt protein
 
 p_sankey_kcal = sankeyNetwork(
   Links = sankey_kcal$links, Nodes = sankey_kcal$nodes,
@@ -955,7 +974,7 @@ for (sector in c("food", "nonfood")) {
   for (metric in c("en", "hr_m", "hr_f")) {
     scale = if (metric == "en") 1e6 else 1e3
     unit  = if (metric == "en") "EJ" else "Ghr"
-    mat_cont = agg_to_continent(l_country[[metric]])
+    mat_cont = agg_to_country_sankey(l_country[[metric]])
     sk = mat_to_sankey(mat_cont, scale = scale)
     p  = sankeyNetwork(
       Links = sk$links, Nodes = sk$nodes,
