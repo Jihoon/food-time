@@ -100,10 +100,10 @@ for (i in names(summary_food[2:3])) {
 # Stack vertically all elements in each list after adding a column "type" filled with the name the element
 summary_food_df = bind_rows(lapply(names(summary_food),
                                    function(x) summary_food[[x]] %>% mutate(type = x))) %>%
-    drop_na()
+    drop_na(domestic, export, import)
 summary_nonfood_df = bind_rows(lapply(names(summary_nonfood),
-                                      function(x) summary_nonfood[[x]] %>% mutate(type = x)))%>%
-    drop_na()
+                                      function(x) summary_nonfood[[x]] %>% mutate(type = x))) %>%
+    drop_na(domestic, export, import)
 
 # Flag countries mapped to aggregate "Rest of" EXIO regions (labour intensities not country-specific)
 row_countries      <- FABIO_reg$ISO[grepl("RoW", FABIO_reg$EXIOBASE)]
