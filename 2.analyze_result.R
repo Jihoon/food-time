@@ -135,12 +135,17 @@ for (i in names(summary_food[2:3])) {
 }
 
 # Stack vertically all elements in each list after adding a column "type" filled with the name the element
-summary_food_df = bind_rows(lapply(names(summary_food), 
+summary_food_df = bind_rows(lapply(names(summary_food),
                                    function(x) summary_food[[x]] %>% mutate(type = x))) %>%
-    drop_na() 
-summary_nonfood_df = bind_rows(lapply(names(summary_nonfood), 
+    drop_na()
+summary_nonfood_df = bind_rows(lapply(names(summary_nonfood),
                                       function(x) summary_nonfood[[x]] %>% mutate(type = x)))%>%
-    drop_na() 
+    drop_na()
+
+# Keep only countries with population > 10 million
+large_cty <- subset(countrypops, year == yr & population > 1e7)$country_code_3
+summary_food_df    <- summary_food_df    %>% filter(country %in% large_cty)
+summary_nonfood_df <- summary_nonfood_df %>% filter(country %in% large_cty)
 
 # Order of domestic hours (by female)
 sum_ord = (summary_food_df %>%   
@@ -300,6 +305,9 @@ summary_pro_df_long = df_nutri[["protein"]] %>%
     footprint_type == "import_per_capita" ~ "import",
     .default = "domestic"
   ))
+
+summary_kcal_df_long <- summary_kcal_df_long %>% filter(country %in% large_cty)
+summary_pro_df_long  <- summary_pro_df_long  %>% filter(country %in% large_cty)
 
 p_kcal = plot_countries(summary_kcal_df_long, "Daily kcal supply per capita (kcal/cap/day)", "kcal")
 p_protein = plot_countries(summary_pro_df_long, "Daily protein supply per capita (g/cap/day)", "protein")
