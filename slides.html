@@ -1,0 +1,400 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Cost of Food</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+  <style>
+    :root {
+      --r-main-font-size: 32px;
+      --accent: #2a6b3f;
+      --accent2: #c97d2e;
+    }
+    .reveal h1, .reveal h2 { color: var(--accent); }
+    .reveal h3 { color: var(--accent2); }
+    .reveal section { text-align: left; }
+    .reveal .title-slide { text-align: center; }
+    .pill {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 0.65em;
+      font-weight: bold;
+      color: white;
+    }
+    .pill-green  { background: var(--accent); }
+    .pill-orange { background: var(--accent2); }
+    .pill-blue   { background: #2c5f8a; }
+    .box {
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      padding: 14px 20px;
+      margin: 8px 0;
+      font-size: 0.78em;
+    }
+    .box-green  { border-color: var(--accent);  background: #f0f8f2; }
+    .box-orange { border-color: var(--accent2); background: #fdf6ee; }
+    .box-blue   { border-color: #2c5f8a;        background: #eef4fb; }
+    .box-gray   { border-color: #888;           background: #f8f8f8; }
+    .cols { display: flex; gap: 24px; align-items: flex-start; }
+    .col  { flex: 1; }
+    .small { font-size: 0.72em; }
+    .tiny  { font-size: 0.60em; color: #666; }
+    .center { text-align: center; }
+    .arrow { font-size: 1.4em; color: #aaa; }
+    table.neat { border-collapse: collapse; font-size: 0.72em; width: 100%; }
+    table.neat th { background: var(--accent); color: white; padding: 6px 10px; }
+    table.neat td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+    table.neat tr:hover td { background: #f5f5f5; }
+    .highlight { color: var(--accent2); font-weight: bold; }
+    .dim { color: #888; font-size: 0.85em; }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 10px 0;
+      font-size: 0.78em;
+    }
+    .step-num {
+      min-width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.1em;
+    }
+    .reveal .slides section .fragment.highlight-current-blue.current-fragment { color: #2c5f8a; }
+  </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ─── TITLE ─── -->
+<section class="title-slide">
+  <br>
+  <h1 style="font-size:1.4em; line-height:1.3">
+    The Time Cost of Food
+  </h1>
+  <p style="color:#555; font-size:0.82em; margin-top: 0.2em">
+    Country-level time and energy conversion factors<br>
+    for food provisioning across 187 countries
+  </p>
+  <br>
+  <p class="dim">Data year: 2020 &nbsp;·&nbsp; Preliminary</p>
+</section>
+
+<!-- ─── MOTIVATION ─── -->
+<section>
+  <h2>Why time?</h2>
+  <p class="small">Food systems are assessed in calories, carbon, and water — but rarely in <strong>human time</strong>.</p>
+  <div class="cols" style="margin-top:20px">
+    <div class="col box box-green">
+      <strong>What we know</strong><br>
+      Greenhouse gas emissions, water footprints, and land use are routinely tracked across global food supply chains.
+    </div>
+    <div class="col box box-orange">
+      <strong>What's missing</strong><br>
+      How many <em>hours</em> does it take to put 2,000 kcal on the table — including cooking, growing, and all upstream labor?
+    </div>
+  </div>
+  <div class="box box-blue" style="margin-top:16px">
+    <strong>This paper:</strong> Compute a <em>time conversion factor</em> — hours per 2,000 kcal and per 100 g protein — for every country, decomposed into domestic production and trade-embedded components.
+  </div>
+</section>
+
+<!-- ─── RESEARCH QUESTIONS ─── -->
+<section>
+  <h2>Research questions</h2>
+  <ul class="small" style="line-height:2">
+    <li>How much total human time (economic + non-economic) does food provisioning require per capita?</li>
+    <li>How does this vary across the income spectrum — from low-income to high-income countries?</li>
+    <li>Is there a <strong>time–energy tradeoff</strong>? Do countries that save time spend more energy?</li>
+    <li>How much of a country's food-time footprint is <strong>embedded in imports</strong>?</li>
+    <li>Does the picture differ by <strong>gender</strong>?</li>
+  </ul>
+</section>
+
+<!-- ─── THREE COMPONENTS ─── -->
+<section>
+  <h2>Three components of food time</h2>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="box box-green" style="flex:1; margin:0">
+      <strong>Household (non-economic) time</strong><br>
+      Cooking, food preparation, home growing, foraging — from Global Human Day / Time Use Surveys, split by gender.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="box box-orange" style="flex:1; margin:0">
+      <strong>Direct labor in food sectors</strong> (economic)<br>
+      Hours embedded in agricultural and food-processing supply chains — via EXIOBASE3 labor satellites mapped through FABIO.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="box box-blue" style="flex:1; margin:0">
+      <strong>Indirect labor in non-food sectors</strong> (economic)<br>
+      Hours in packaging, transport, energy, and other upstream industries supporting food — derived via Leontief inverse.
+    </div>
+  </div>
+</section>
+
+<!-- ─── DATA ─── -->
+<section>
+  <h2>Data sources</h2>
+  <table class="neat">
+    <tr>
+      <th>Dataset</th><th>Coverage</th><th>Unit</th><th>Role</th>
+    </tr>
+    <tr>
+      <td><strong>FABIO</strong></td>
+      <td>187 countries × 123 food commodities</td>
+      <td>Tonnes (mass)</td>
+      <td>Food supply chain structure &amp; trade</td>
+    </tr>
+    <tr>
+      <td><strong>EXIOBASE3 pxp</strong></td>
+      <td>49 regions × 200 sectors (2020)</td>
+      <td>USD (monetary)</td>
+      <td>Labor &amp; energy satellite accounts</td>
+    </tr>
+    <tr>
+      <td><strong>EXIOBASE3 satellites</strong></td>
+      <td>Energy (TJ), Labor by gender (M·hr)</td>
+      <td>Physical</td>
+      <td>Direct intensities per unit output</td>
+    </tr>
+    <tr>
+      <td><strong>Global Human Day</strong></td>
+      <td>~100 countries via TUS</td>
+      <td>hr/cap/day</td>
+      <td>Non-economic food time by gender</td>
+    </tr>
+  </table>
+  <p class="tiny" style="margin-top:12px">* FABIO is mass-based; EXIOBASE is monetary — a key methodological challenge addressed by the concordance mapping.</p>
+</section>
+
+<!-- ─── BRIDGING CHALLENGE ─── -->
+<section>
+  <h2>The bridging problem</h2>
+  <p class="small">FABIO is mass-based (tonnes). EXIOBASE is monetary (USD). Connecting them requires:</p>
+  <div class="cols" style="margin-top:14px">
+    <div class="col">
+      <div class="box box-green">
+        <strong>Step 1 — Mass → EXIO sectors</strong><br class="small">
+        <span class="small">Split FABIO mass vectors into EXIO product categories using monetary shares within each concordance row. Produces a 23,001 × 37,400 mapping matrix.</span>
+      </div>
+      <div class="box box-orange" style="margin-top:12px">
+        <strong>Step 2 — Intensities → per tonne</strong><br>
+        <span class="small">Convert EXIO labor/energy intensities from per-USD to per-tonne, then reorder from 49 EXIO regions to 187 FABIO countries.</span>
+      </div>
+      <div class="box box-blue" style="margin-top:12px">
+        <strong>Step 3 — Leontief propagation</strong><br>
+        <span class="small">Non-food sector intensities flow through the full economy via L = (I − A)⁻¹, capturing upstream indirect effects.</span>
+      </div>
+    </div>
+    <div class="col center" style="font-size:0.72em; padding-top: 10px">
+      <div class="box box-gray center">
+        <strong>FABIO</strong><br>187 × 123 = 23,001<br>
+        <span class="dim">mass (tonnes)</span>
+      </div>
+      <div class="arrow center">↕</div>
+      <div class="box box-gray center">
+        <strong>Concordance</strong><br>prod_map: 123 × 200<br>
+        <span class="dim">+ region crosswalk</span>
+      </div>
+      <div class="arrow center">↕</div>
+      <div class="box box-gray center">
+        <strong>EXIOBASE3</strong><br>49 × 200 = 9,800<br>
+        <span class="dim">monetary (USD)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── METRICS ─── -->
+<section>
+  <h2>Output metrics</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Per capita</h3>
+      <div class="box box-green small">
+        <strong>Time footprint</strong><br>
+        hr/cap/day — by gender (female / male)
+      </div>
+      <div class="box box-orange small">
+        <strong>Energy footprint</strong><br>
+        GJ/cap/yr → MJ/cap/day
+      </div>
+      <div class="box box-blue small">
+        <strong>Food supply</strong><br>
+        kcal/cap/day &nbsp;·&nbsp; g protein/cap/day
+      </div>
+    </div>
+    <div class="col">
+      <h3>Conversion factors</h3>
+      <div class="box box-green small">
+        <strong>hr / 2,000 kcal</strong><br>
+        Time intensity per dietary reference intake
+      </div>
+      <div class="box box-orange small">
+        <strong>hr / 100 g protein</strong><br>
+        Time intensity per protein unit
+      </div>
+      <div class="box box-blue small">
+        <strong>MJ / 2,000 kcal</strong><br>
+        Energy intensity (tradeoff with time)
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── TRADE DECOMPOSITION ─── -->
+<section>
+  <h2>Trade decomposition</h2>
+  <p class="small">Each country's footprint is split into three parts:</p>
+  <div class="step">
+    <div class="step-num" style="background:#2a6b3f">D</div>
+    <div class="box box-green" style="flex:1; margin:0">
+      <strong>Domestic</strong> — time embodied in food produced <em>and</em> consumed at home
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num" style="background:#c97d2e">E</div>
+    <div class="box box-orange" style="flex:1; margin:0">
+      <strong>Export</strong> — time a country's workers spend producing food for <em>other</em> countries
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num" style="background:#2c5f8a">I</div>
+    <div class="box box-blue" style="flex:1; margin:0">
+      <strong>Import</strong> — time embodied in food a country consumes but did <em>not</em> produce
+    </div>
+  </div>
+  <p class="small" style="margin-top:16px">
+    Both food-sector (direct) and non-food-sector (indirect) components are decomposed separately — for energy, male labor, and female labor.
+  </p>
+</section>
+
+<!-- ─── KEY RESULTS PREVIEW ─── -->
+<section>
+  <h2>Illustrative findings <span class="dim">(preliminary)</span></h2>
+  <ul class="small" style="line-height:2">
+    <li>Household (non-economic) time dominates in <span class="highlight">low-income countries</span> — often &gt;80% of total food time.</li>
+    <li>Economic labor dominates in <span class="highlight">high-income countries</span>, but is mostly invisible to consumers.</li>
+    <li>A <strong>time–energy tradeoff</strong> is visible: labor-saving food systems tend to be more energy-intensive.</li>
+    <li>Trade embeds substantial time — some countries <span class="highlight">import more food-time than they produce</span>.</li>
+    <li>Female time burden is <span class="highlight">consistently higher</span> than male across all income groups, driven by household work.</li>
+  </ul>
+  <p class="tiny">Full charts: footprint_all_countries, conversion_kcal/protein, tradeoff_econ/full, spotlight by country (USA, CHN, …)</p>
+</section>
+
+<!-- ─── TIME-ENERGY TRADEOFF ─── -->
+<section>
+  <h2>The time–energy tradeoff</h2>
+  <div class="cols" style="margin-top:10px">
+    <div class="col box box-green">
+      <strong>Low-income countries</strong>
+      <ul class="small">
+        <li>High household labor time</li>
+        <li>Low mechanization → low energy use</li>
+        <li>Large female–male gap</li>
+      </ul>
+    </div>
+    <div class="col box box-orange">
+      <strong>High-income countries</strong>
+      <ul class="small">
+        <li>Low household time (outsourced to industry)</li>
+        <li>High energy footprint per kcal</li>
+        <li>Smaller gender gap</li>
+      </ul>
+    </div>
+  </div>
+  <div class="box box-blue" style="margin-top:16px; font-size:0.78em">
+    <strong>Implication:</strong> Reducing household time burden requires either energy-intensive industrialization <em>or</em> structural changes to food systems (infrastructure, markets, gender norms). There is no free lunch.
+  </div>
+</section>
+
+<!-- ─── COUNTRY SPOTLIGHT ─── -->
+<section>
+  <h2>Country spotlight structure</h2>
+  <p class="small">For each country we produce two figures:</p>
+  <div class="cols" style="margin-top:10px">
+    <div class="col box box-green">
+      <strong>Footprint bar chart</strong><br>
+      <span class="small">Stacked bars: domestic + export (positive), import (negative), by gender and sector. Allows comparison of production-based vs. consumption-based footprints.</span>
+    </div>
+    <div class="col box box-orange">
+      <strong>Continental trade flows</strong><br>
+      <span class="small">Where does the country's food-time come from and go to? Broken down by continent of origin/destination.</span>
+    </div>
+  </div>
+  <p class="small" style="margin-top:16px">Country examples analyzed: <strong>USA</strong>, <strong>China</strong> — others available on request.</p>
+  <p class="small">Interactive Sankey diagrams show commodity-level trade flows for kcal and protein at continental resolution.</p>
+</section>
+
+<!-- ─── PIPELINE ─── -->
+<section>
+  <h2>Computational pipeline</h2>
+  <div class="step"><div class="step-num">0</div>
+    <div class="small"><strong>0.mrio_prep.R</strong> — Load FABIO (L, x, Y), EXIOBASE satellites, GHD gender data, concordances.</div>
+  </div>
+  <div class="step"><div class="step-num">1</div>
+    <div class="small"><strong>1.mrio_convert.R</strong> — Map FABIO mass to EXIO sectors; compute direct energy/labor intensities; compute kcal/protein flows.</div>
+  </div>
+  <div class="step"><div class="step-num" style="font-size:0.8em">1.1</div>
+    <div class="small"><strong>1.1.mrio_convert_indirect.R</strong> — Leontief inverse for non-food sector indirect intensities.</div>
+  </div>
+  <div class="step"><div class="step-num">2</div>
+    <div class="small"><strong>2.analyze_result.R</strong> — Aggregate footprints, decompose trade, generate all figures and CSVs.</div>
+  </div>
+  <p class="tiny" style="margin-top:10px">Output: 187 × 3 CSVs (energy, male labor, female labor) + 10+ PDF figures + 8 interactive HTML Sankeys.</p>
+</section>
+
+<!-- ─── NEXT STEPS ─── -->
+<section>
+  <h2>Next steps</h2>
+  <ul class="small" style="line-height:2.1">
+    <li>Expand GHD country coverage — currently limited by TUS availability.</li>
+    <li>Sensitivity analysis on FABIO–EXIO concordance assumptions.</li>
+    <li>Add <strong>temporal trends</strong>: repeat for earlier EXIOBASE years (2010, 2015).</li>
+    <li>Link conversion factors to dietary scenarios (e.g., shift to plant-based diet).</li>
+    <li>Peer review and journal submission.</li>
+  </ul>
+</section>
+
+<!-- ─── CLOSING ─── -->
+<section class="title-slide">
+  <br><br>
+  <h2>Thank you</h2>
+  <p class="small" style="color:#555">
+    Preliminary results — please do not circulate without permission.
+  </p>
+  <br>
+  <p class="dim">Working paper: <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5390280" style="color: var(--accent)">SSRN 5390280</a></p>
+</section>
+
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'fade',
+    transitionSpeed: 'fast',
+    controls: true,
+    progress: true,
+    center: false,
+  });
+</script>
+</body>
+</html>
