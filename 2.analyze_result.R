@@ -228,6 +228,32 @@ print(p_combined_partial)
 ggsave(paste0("results/footprint_all_countries.pdf"), p_combined, width = 18, height = 12)
 ggsave(paste0("results/footprint_partial_countries.pdf"), p_combined_partial, width = 18, height = 12)
 
+# Plot directly-modelled EXIO countries only (non-RoW)
+direct_ord = (summary_food_df_long_with_ghd %>%
+  filter(!is_row, type == "hr_f") %>%
+  group_by(country) %>%
+  summarise(d = sum(per_capita_value, na.rm = TRUE)) %>%
+  arrange(-d))$country
+
+b = summary_food_df_long_with_ghd %>%
+  filter(!is_row) %>%
+  mutate(country = factor(country, levels = direct_ord))
+
+p_hr_f_direct = plot_countries(b %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
+p_hr_m_direct = plot_countries(b %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
+
+p_combined_direct = p_hr_f_direct / p_hr_m_direct + plot_layout(guides = "collect") & theme(
+  legend.position = "top",
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+p_combined_direct[[2]] <- p_combined_direct[[2]] +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.ticks.x = element_line())
+print(p_combined_direct)
+
+ggsave(paste0("results/footprint_direct_countries.pdf"), p_combined_direct, width = 18, height = 12)
+
 
 
 
