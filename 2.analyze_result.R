@@ -100,10 +100,10 @@ summary_nonfood_df = bind_rows(lapply(names(summary_nonfood),
                                       function(x) summary_nonfood[[x]] %>% mutate(type = x)))%>%
     drop_na()
 
-# Keep only countries with population > 10 million
-large_cty <- subset(countrypops, year == yr & population > 1e7)$country_code_3
-summary_food_df    <- summary_food_df    %>% filter(country %in% large_cty)
-summary_nonfood_df <- summary_nonfood_df %>% filter(country %in% large_cty)
+# Flag countries mapped to aggregate "Rest of" EXIO regions (labour intensities not country-specific)
+row_countries      <- FABIO_reg$ISO[grepl("RoW", FABIO_reg$EXIOBASE)]
+summary_food_df    <- summary_food_df    %>% mutate(is_row = country %in% row_countries)
+summary_nonfood_df <- summary_nonfood_df %>% mutate(is_row = country %in% row_countries)
 
 # Order of domestic hours (by female)
 sum_ord = (summary_food_df %>%   
@@ -135,12 +135,12 @@ summary_nonfood_df_long = summary_nonfood_df %>%
 # Vertically stack df_ghd_gender to summary_food_df_long, and then plot again with the same function plot_countries. This will add the non-economic food time to the existing labor footprint
 summary_food_df_long_with_ghd = bind_rows(summary_food_df_long, df_ghd_combined) %>%
   arrange(country, type, footprint_type) %>%
-  mutate(country = factor(country, levels = sum_ord),
+  mutate(is_row = as.character(country) %in% row_countries,
+         country = factor(country, levels = sum_ord),
          footprint_type = factor(footprint_type,
                                  levels = c("preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
                                             "preparation_econ",
-                                            "export_per_capita", "import_per_capita", "domestic_per_capita"))) %>%
-  filter(!is.na(country))
+                                            "export_per_capita", "import_per_capita", "domestic_per_capita")))
 
 # Plot the results (all countries)
 
@@ -264,9 +264,6 @@ summary_pro_df_long = df_nutri[["protein"]] %>%
     footprint_type == "import_per_capita" ~ "import",
     .default = "domestic"
   ))
-
-summary_kcal_df_long <- summary_kcal_df_long %>% filter(country %in% large_cty)
-summary_pro_df_long  <- summary_pro_df_long  %>% filter(country %in% large_cty)
 
 p_kcal = plot_countries(summary_kcal_df_long, "Daily kcal supply per capita (kcal/cap/day)", "kcal")
 p_protein = plot_countries(summary_pro_df_long, "Daily protein supply per capita (g/cap/day)", "protein")

@@ -256,25 +256,39 @@ plot_countries <- function(df, ylabel, maintitle) {
   neg_type = strsplit(part_negative, "_")[[1]][1]
   pos_type = ifelse(neg_type == "import", "export", "import")
   
-  g = ggplot(df %>% 
-               filter(footprint_type != part_negative),
-             aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type)) +
-    # When bars are stacked, make sure that "domestic_per_capita" is at the bottom and what's on top is determined by pos_type.
+  has_row <- "is_row" %in% colnames(df)
+  pos_df  <- df %>% filter(footprint_type != part_negative)
+  neg_df  <- df %>% filter(footprint_type == part_negative)
+
+  if (has_row) {
+    g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type, alpha=is_row))
+  } else {
+    g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type))
+  }
+
+  g <- g +
     geom_bar(stat="identity", position="stack") +
-    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") + 
+    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") +
     theme_minimal() +
-    theme(legend.position = "top") +
-    # Tilt x-axis labels
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    # Add import_per_capita values as negative y axis bars by footprint_type and type
-    geom_bar(data = df %>% 
-               filter(footprint_type == part_negative),
-             aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type), 
-             stat="identity", position="stack") + 
-    scale_fill_manual(values=c_scheme) #+
-    # labs(fill="Footprint type", title=paste0(maintitle,"\n(positive: domestic+", pos_type, ", negative: ", neg_type, ")")) 
-    labs(fill="Footprint type")
-  
+    theme(legend.position = "top",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+
+  if (has_row) {
+    g <- g + geom_bar(data=neg_df,
+                      aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type, alpha=is_row),
+                      stat="identity", position="stack")
+  } else {
+    g <- g + geom_bar(data=neg_df,
+                      aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type),
+                      stat="identity", position="stack")
+  }
+
+  g <- g + scale_fill_manual(values=c_scheme)
+
+  if (has_row) {
+    g <- g + scale_alpha_manual(values=c("TRUE"=0.5, "FALSE"=1.0), guide="none")
+  }
+
   print(g)
   return(g)
 }
