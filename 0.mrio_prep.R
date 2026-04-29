@@ -9,13 +9,6 @@ data(countrypops)
 year = yr = 2020  # Year when both labor and energy satellites are available
 type = "pxp"
 
-# Population data for per capita calculations
-pop_y = subset(countrypops, year == yr) %>%
-  select(iso3c = country_code_3, pop = population)
-
-pop_y = pop_y %>% right_join(regions, by = "iso3c") %>%
-  select(iso3c, pop)
-
 # Set up paths for data loading
 EXIO_path = paste0("H:/MyDocuments/Data/EXIOBASE3/IOT_", year, "_", type)
 EXIO_path_e = paste0(EXIO_path, "/energy/F.txt")
@@ -102,6 +95,14 @@ ene_net = matrix(ene[2,])
 lab_male = matrix(colSums(lab[c(7,9,11),]))
 lab_female = matrix(colSums(lab[c(8,10,12),]))
 
+
+#### 2.1. Population import ####
+# Population data for per capita calculations
+pop_y = subset(countrypops, year == yr) %>%
+  select(iso3c = country_code_3, pop = population)
+
+pop_y = pop_y %>% right_join(regions, by = "iso3c") %>%
+  select(iso3c, pop)
 
 
 #### 3. Prepare/Read indirect satellite through Leontief inverse 'L' ####
