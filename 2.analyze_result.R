@@ -11,6 +11,9 @@ l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".
 fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
 
 n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
+# Footprint for non-food sectors is calculated by multiplying the intensity matrix 
+# (in the same dim as satellite (32725x23001)) with the FABIO_x_hh vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
+
 fp_nonfood <- lapply(l_int_i, function(d) {
   fp_list <- vector("list", nrreg)
   for (i in 1:nrreg) {
@@ -820,6 +823,7 @@ for (country in regions$iso3c) {
 # Total Mcal trade between countries
 saveRDS(mat, file.path("data/calorie_trade_mat.rds"))
 
+mat = readRDS(file.path("data/calorie_trade_mat.rds"))
 
 
 # TODO
@@ -896,7 +900,7 @@ mat_y_pro = Y_pro_cons %>%
   select(sort(peek_vars())) %>%
   as.matrix()  # g protein; rows = producer, cols = consumer country
 
-# Aggregate country×country matrix to continent×continent
+# Aggregate country×country matrix to continent×continent (not used)
 agg_to_continent <- function(mat) {
   cty  = colnames(mat)
   cont = regions$continent[match(cty, regions$iso3c)]
@@ -928,8 +932,12 @@ agg_to_country_sankey <- function(mat, n_top = 20) {
   mat_agg
 }
 
-mat_kcal_cty = agg_to_country_sankey(mat_y)      # kcal
-mat_pro_cty  = agg_to_country_sankey(mat_y_pro)  # g protein
+# Only the last stage of trade before final consumption is considered. 
+mat_kcal_cty_cons = agg_to_country_sankey(mat_y)      # kcal
+mat_pro_cty_cons  = agg_to_country_sankey(mat_y_pro)  # g protein
+# This reflects the flow of calories/protein from producer to consumer countries through the trade chain. This avoids double-counting of intermediate trade flows.
+mat_kcal_cty = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_cal))
+mat_pro_cty = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_pro))
 
 # Convert continent×continent matrix to Sankey links/nodes
 # Producer nodes sit on the left, consumer nodes on the right (avoids self-loop issue)
@@ -950,6 +958,8 @@ mat_to_sankey <- function(mat, scale) {
 
 sankey_kcal = mat_to_sankey(mat_kcal_cty, scale = 1e12)  # display in Tcal
 sankey_pro  = mat_to_sankey(mat_pro_cty,  scale = 1e9)   # display in kt protein
+sankey_kcal_cons = mat_to_sankey(mat_kcal_cty_cons, scale = 1e12)  # display in Tcal
+sankey_pro_cons  = mat_to_sankey(mat_pro_cty_cons,  scale = 1e9)   # display in kt protein
 
 p_sankey_kcal = sankeyNetwork(
   Links = sankey_kcal$links, Nodes = sankey_kcal$nodes,
@@ -964,9 +974,24 @@ p_sankey_pro = sankeyNetwork(
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "kt protein"
 )
+p_sankey_kcal_cons = sankeyNetwork(
+  Links = sankey_kcal_cons$links, Nodes = sankey_kcal_cons$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "Tcal"
+)
+
+p_sankey_pro_cons = sankeyNetwork(
+  Links = sankey_pro_cons$links, Nodes = sankey_pro_cons$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "kt protein"
+)
 
 htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
+htmlwidgets::saveWidget(p_sankey_kcal_cons, "results/sankey_kcal_cons.html",     selfcontained = FALSE)
+htmlwidgets::saveWidget(p_sankey_pro_cons,  "results/sankey_protein_cons.html",  selfcontained = FALSE)
 
 # Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
 for (sector in c("food", "nonfood")) {
@@ -987,6 +1012,7 @@ for (sector in c("food", "nonfood")) {
   }
 }
 
+# Country-wise production/consumption/export/import summary (kcal/capita/day)
 prod_cty <- data.frame(iso3c = rownames(mat),
                        dom_consump = diag(mat), 
                        export = -(rowSums(mat) - diag(mat)),
