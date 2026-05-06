@@ -759,6 +759,7 @@ for (country in regions$iso3c) {
       
       # Calculate calorie & protein production/consumption 
       x_country = t(t(FABIO_L) * country_consump) # mass flows
+      
       # FP_cal = sweep(x_country, 2, 1000*coeff_cal, "*") 
       FP_cal = t(t(x_country) * as.vector(coeff_cal$kcal_per_kg)) * 1000 # kcal flows
       FP_pro = t(t(x_country) * as.vector(coeff_pro$protein_per_kg)) * 1000 # g-protein flows
@@ -766,8 +767,13 @@ for (country in regions$iso3c) {
       FP_cal <- as(FP_cal, "TsparseMatrix")
       FP_pro <- as(FP_pro, "TsparseMatrix")
       
-      cal_consum = sum(country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
-      pro_consum = sum(country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
+      cal_consum = (country_consump*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
+      pro_consum = (country_consump*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
+
+      # Make by-country (for both origin and target) for calorie and protein flows by partial summing each nrreg entries of cal_consum and pro_consum 
+    
+      cal_prod = (rowSums(x_country)*coeff_cal$kcal_per_kg)/365/pop*1000 #kcal/cap/day
+      pro_prod = (rowSums(x_country)*coeff_pro$protein_per_kg)/365/pop*1000 #kcal/cap/day
       
       results <- data.table(origin=rownames(FP)[FP@i + 1], target=colnames(FP)[FP@j + 1], 
                             value = FP@x, # M.hr
@@ -853,6 +859,7 @@ Y_sq <- Y_cons %>%
   select(sort(peek_vars()))
 
 # Total kcal trade from Y
+# mat_y is basically the same as agg_country_footprint(FABIO_y_hh_cal).
 mat_y = as.matrix(Y_sq) 
 # Save total consumption kcal trade between countries
 saveRDS(mat_y, file.path("data/calorie_trade_mat_cons.rds")) # in kcal
@@ -1039,7 +1046,7 @@ mat_to_sankey_with_loss <- function(mat_prod, mat_cons, scale,
   if (!is.null(pop) && !is.null(pcap_label)) {
     prod_pop  <- pop$pop[match(prod_ord, pop$label)]
     cons_pop  <- pop$pop[match(cons_ord, pop$label)]
-    loss_vals <- pmax(rowSums(mat_prod)[loss_ord] - rowSums(mat_cons)[loss_ord], 0)
+    loss_vals <- rowSums(mat_prod - mat_cons)[loss_ord]
     loss_pct  <- loss_vals / rowSums(mat_prod)[loss_ord] * 100
     nodes$tooltip <- c(
       paste0(formatC(rowSums(mat_prod)[prod_ord] / prod_pop / 365,
@@ -1062,7 +1069,7 @@ mat_to_sankey_with_loss <- function(mat_prod, mat_cons, scale,
     )
 
   # Links: producer → its own loss node (remainder not reaching final consumption)
-  loss_vals <- pmax(rowSums(mat_prod) - rowSums(mat_cons), 0)
+  loss_vals <- rowSums(mat_prod - mat_cons)
   links_loss <- data.frame(source_name = names(loss_vals), value = loss_vals) %>%
     filter(value > 0) %>%
     mutate(
@@ -1134,9 +1141,9 @@ htmlwidgets::saveWidget(p_sankey_pro_cons,  "results/sankey_protein_cons.html", 
 #   Right node width = actual household consumption calories (mat_y)
 #   Loss  node       = the difference per producer (supply-chain + processing losses)
 res_combined_kcal <- agg_to_country_sankey_shared(
-  agg_country_footprint(FABIO_x_hh_cal), mat_y)
+  agg_country_footprint(FABIO_x_hh_cal), agg_country_footprint(FABIO_y_hh_cal))
 res_combined_pro  <- agg_to_country_sankey_shared(
-  agg_country_footprint(FABIO_x_hh_pro), mat_y_pro)
+  agg_country_footprint(FABIO_x_hh_pro), agg_country_footprint(FABIO_y_hh_pro))
 
 sankey_combined_kcal <- mat_to_sankey_with_loss(
   res_combined_kcal$mat_prod, res_combined_kcal$mat_cons,
