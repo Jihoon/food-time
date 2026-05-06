@@ -1,7 +1,6 @@
 library(tidyverse)
 library(Matrix)
 
-source("99.utils.R")
 
 #### 1. Conversions to FABIO mass vector (123) to EXIO classifications (200, still mass) ####
 

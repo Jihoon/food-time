@@ -1,30 +1,5 @@
 #### 1. Define EXIO sectoral divides and extract non-food satellites ####
 
-# Note: This is a prep step to derive indirect energy and labor use satellites for non-food sectors only.
-#       
-
-i_exio_bio_sectors = which(colSums(prod_map) > 0) 
-# Remove some bio-sectors that are not edible.
-bio_nonfood = c("Wool, silk-worm cocoons", "Chemicals nec", "Plant-based fibers")
-i_exio_food_sectors = setdiff(i_exio_bio_sectors, 
-                              which(EXIO_sect %in% bio_nonfood))
-# Make a boolean vector for food sectors
-idx_food = colSums(prod_map) > 0
-idx_food[which(EXIO_sect %in% bio_nonfood)] = FALSE
-idx_nonfood = !idx_food 
-
-# Add test sum(idx_food) + sum(idx_nonfood) == 200
-
-# Sector names
-exio_food_sectors = EXIO_reg$sector[i_exio_food_sectors]
-exio_nonfood_sectors = EXIO_reg$sector[setdiff(1:200, i_exio_food_sectors)] # 175 rows
-exio_bio_sectors = EXIO_reg$sector[i_exio_bio_sectors]
-  
-# Derive indirect energy and labor satellites (F mtx) for non-food sectors (per ton)
-ene_net_nonfood = matrix(ene_net*idx_nonfood, nrow=1)
-lab_male_nonfood = matrix(lab_male*idx_nonfood, nrow=1) 
-lab_female_nonfood = matrix(lab_female*idx_nonfood, nrow=1)
-
 x_inv = 1/EXIO_x
 x_inv[!is.finite(x_inv)] = 0
 
