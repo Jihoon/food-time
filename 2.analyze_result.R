@@ -938,6 +938,35 @@ agg_to_country_sankey <- function(mat, n_top = 20) {
   list(mat = mat_agg, pop = pop_lookup)
 }
 
+# Shared aggregation for two matrices, using the same country labels for both.
+# Ensures prod and cons Sankey nodes are directly comparable.
+agg_to_country_sankey_shared <- function(mat_prod, mat_cons, n_top = 20) {
+  cty  <- rownames(mat_prod)
+  cont <- regions$continent[match(cty, regions$iso3c)]
+
+  # Rank by combined off-diagonal volume across both matrices
+  off_prod <- mat_prod; diag(off_prod) <- 0
+  off_cons <- mat_cons; diag(off_cons) <- 0
+  total <- rowSums(off_prod) + colSums(off_prod) + rowSums(off_cons) + colSums(off_cons)
+  top   <- names(sort(total, decreasing = TRUE))[seq_len(min(n_top, length(cty)))]
+
+  labels <- ifelse(cty %in% top, cty,
+                   paste0("Other ", ifelse(is.na(cont), "World", cont)))
+
+  agg_mat <- function(m) {
+    m_agg       <- t(rowsum(t(rowsum(m, group = labels)), group = labels))
+    diag(m_agg) <- 0
+    m_agg
+  }
+
+  pop_lookup <- data.frame(iso3c = cty, label = labels) %>%
+    left_join(pop_y, by = "iso3c") %>%
+    group_by(label) %>%
+    summarise(pop = sum(pop, na.rm = TRUE), .groups = "drop")
+
+  list(mat_prod = agg_mat(mat_prod), mat_cons = agg_mat(mat_cons), pop = pop_lookup)
+}
+
 # Only the last stage of trade before final consumption is considered.
 res_kcal_cty_cons = agg_to_country_sankey(mat_y);      
 mat_kcal_cty_cons = res_kcal_cty_cons$mat; 
@@ -978,6 +1007,75 @@ mat_to_sankey <- function(mat, scale, pop = NULL, pcap_label = NULL) {
       target = match(paste0(target_name, " (cons)"), nodes$name) - 1L,
       value  = value / scale
     )
+  list(nodes = nodes, links = as.data.frame(links))
+}
+
+# Build a Sankey where left nodes are sized by production (x) and right nodes by
+# consumption (y). Supply-chain loss per producer fills the gap, making flows
+# conserved at every node.
+#
+# mat_prod[A,B]: production in A attributed to B's consumption (Leontief-based)
+# mat_cons[A,B]: actual household calories in B that originated from A (final demand Y)
+# Loss per producer A = rowSums(mat_prod)[A] - rowSums(mat_cons)[A]
+mat_to_sankey_with_loss <- function(mat_prod, mat_cons, scale,
+                                    pop = NULL, pcap_label = NULL) {
+  producers <- rownames(mat_prod)
+  consumers <- colnames(mat_cons)
+
+  # Order nodes by descending total volume
+  prod_ord <- producers[order(rowSums(mat_prod), decreasing = TRUE)]
+  cons_ord <- consumers[order(colSums(mat_cons), decreasing = TRUE)]
+  loss_ord <- prod_ord  # one loss node per producer, same order
+
+  nodes <- data.frame(
+    name  = c(paste0(prod_ord, " (prod)"),
+              paste0(cons_ord, " (cons)"),
+              paste0(loss_ord, " (loss)")),
+    group = c(rep("prod", length(prod_ord)),
+              rep("cons", length(cons_ord)),
+              rep("loss", length(loss_ord)))
+  )
+
+  if (!is.null(pop) && !is.null(pcap_label)) {
+    prod_pop  <- pop$pop[match(prod_ord, pop$label)]
+    cons_pop  <- pop$pop[match(cons_ord, pop$label)]
+    loss_vals <- pmax(rowSums(mat_prod)[loss_ord] - rowSums(mat_cons)[loss_ord], 0)
+    loss_pct  <- loss_vals / rowSums(mat_prod)[loss_ord] * 100
+    nodes$tooltip <- c(
+      paste0(formatC(rowSums(mat_prod)[prod_ord] / prod_pop / 365,
+                     format = "f", digits = 1), " ", pcap_label, " (prod)"),
+      paste0(formatC(colSums(mat_cons)[cons_ord] / cons_pop / 365,
+                     format = "f", digits = 1), " ", pcap_label, " (cons)"),
+      paste0(formatC(loss_pct, format = "f", digits = 1), "% supply-chain loss")
+    )
+  }
+
+  # Links: producer → consumer (actual consumption values)
+  links_cons <- as.data.frame(mat_cons) %>%
+    tibble::rownames_to_column("source_name") %>%
+    pivot_longer(-source_name, names_to = "target_name", values_to = "value") %>%
+    filter(value > 0) %>%
+    mutate(
+      source = match(paste0(source_name, " (prod)"), nodes$name) - 1L,
+      target = match(paste0(target_name, " (cons)"), nodes$name) - 1L,
+      value  = value / scale
+    )
+
+  # Links: producer → its own loss node (remainder not reaching final consumption)
+  loss_vals <- pmax(rowSums(mat_prod) - rowSums(mat_cons), 0)
+  links_loss <- data.frame(source_name = names(loss_vals), value = loss_vals) %>%
+    filter(value > 0) %>%
+    mutate(
+      source = match(paste0(source_name, " (prod)"), nodes$name) - 1L,
+      target = match(paste0(source_name, " (loss)"), nodes$name) - 1L,
+      value  = value / scale
+    )
+
+  links <- bind_rows(
+    links_cons %>% select(source, target, value),
+    links_loss %>% select(source, target, value)
+  )
+
   list(nodes = nodes, links = as.data.frame(links))
 }
 
@@ -1030,6 +1128,43 @@ htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfconta
 htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_kcal_cons, "results/sankey_kcal_cons.html",     selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_pro_cons,  "results/sankey_protein_cons.html",  selfcontained = FALSE)
+
+# Combined prod-x / cons-y Sankey with supply-chain loss nodes:
+#   Left  node width = production calories attributed to food consumption (FABIO_x_hh_cal)
+#   Right node width = actual household consumption calories (mat_y)
+#   Loss  node       = the difference per producer (supply-chain + processing losses)
+res_combined_kcal <- agg_to_country_sankey_shared(
+  agg_country_footprint(FABIO_x_hh_cal), mat_y)
+res_combined_pro  <- agg_to_country_sankey_shared(
+  agg_country_footprint(FABIO_x_hh_pro), mat_y_pro)
+
+sankey_combined_kcal <- mat_to_sankey_with_loss(
+  res_combined_kcal$mat_prod, res_combined_kcal$mat_cons,
+  scale = 1e12, pop = res_combined_kcal$pop, pcap_label = "kcal/cap/day")
+sankey_combined_pro  <- mat_to_sankey_with_loss(
+  res_combined_pro$mat_prod,  res_combined_pro$mat_cons,
+  scale = 1e9,  pop = res_combined_pro$pop,  pcap_label = "g protein/cap/day")
+
+p_sankey_combined_kcal <- sankeyNetwork(
+  Links = sankey_combined_kcal$links, Nodes = sankey_combined_kcal$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "Tcal", iterations = 0
+) %>% add_pcap_tooltip(sankey_combined_kcal)
+
+p_sankey_combined_pro <- sankeyNetwork(
+  Links = sankey_combined_pro$links, Nodes = sankey_combined_pro$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "kt protein", iterations = 0
+) %>% add_pcap_tooltip(sankey_combined_pro)
+
+htmlwidgets::saveWidget(p_sankey_combined_kcal, "results/sankey_combined_kcal.html",
+                        selfcontained = FALSE)
+htmlwidgets::saveWidget(p_sankey_combined_pro,  "results/sankey_combined_protein.html",
+                        selfcontained = FALSE)
 
 # Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
 for (sector in c("food", "nonfood")) {
