@@ -929,21 +929,46 @@ agg_to_country_sankey <- function(mat, n_top = 20) {
 
   mat_agg        <- t(rowsum(t(rowsum(mat, group = labels)), group = labels))
   diag(mat_agg)  <- 0  # remove domestic / intra-group flows
-  mat_agg
+
+  pop_lookup <- data.frame(iso3c = cty, label = labels) %>%
+    left_join(pop_y, by = "iso3c") %>%
+    group_by(label) %>%
+    summarise(pop = sum(pop, na.rm = TRUE), .groups = "drop")
+
+  list(mat = mat_agg, pop = pop_lookup)
 }
 
-# Only the last stage of trade before final consumption is considered. 
-mat_kcal_cty_cons = agg_to_country_sankey(mat_y)      # kcal
-mat_pro_cty_cons  = agg_to_country_sankey(mat_y_pro)  # g protein
+# Only the last stage of trade before final consumption is considered.
+res_kcal_cty_cons = agg_to_country_sankey(mat_y);      
+mat_kcal_cty_cons = res_kcal_cty_cons$mat; 
+pop_kcal_cty_cons = res_kcal_cty_cons$pop
+res_pro_cty_cons  = agg_to_country_sankey(mat_y_pro);  
+mat_pro_cty_cons  = res_pro_cty_cons$mat;  
+pop_pro_cty_cons  = res_pro_cty_cons$pop
 # This reflects the flow of calories/protein from producer to consumer countries through the trade chain. This avoids double-counting of intermediate trade flows.
-mat_kcal_cty = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_cal))
-mat_pro_cty = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_pro))
+res_kcal_cty = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_cal)); 
+mat_kcal_cty = res_kcal_cty$mat; 
+pop_kcal_cty = res_kcal_cty$pop
+res_pro_cty  = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_pro));  
+mat_pro_cty  = res_pro_cty$mat;  
+pop_pro_cty  = res_pro_cty$pop
 
 # Convert continent×continent matrix to Sankey links/nodes
 # Producer nodes sit on the left, consumer nodes on the right (avoids self-loop issue)
-mat_to_sankey <- function(mat, scale) {
+mat_to_sankey <- function(mat, scale, pop = NULL, pcap_label = NULL) {
   conts = rownames(mat)
-  nodes = data.frame(name = c(paste0(conts, " (prod)"), paste0(conts, " (cons)")))
+  prod_names = conts[order(rowSums(mat), decreasing = TRUE)]
+  cons_names = colnames(mat)[order(colSums(mat), decreasing = TRUE)]
+  nodes = data.frame(name = c(paste0(prod_names, " (prod)"), paste0(cons_names, " (cons)")))
+
+  if (!is.null(pop) && !is.null(pcap_label)) {
+    prod_pop = pop$pop[match(prod_names, pop$label)]
+    cons_pop = pop$pop[match(cons_names, pop$label)]
+    pcap = c(rowSums(mat)[prod_names] / prod_pop / 365,
+             colSums(mat)[cons_names] / cons_pop / 365)
+    nodes$tooltip = paste0(formatC(pcap, format = "f", digits = 1, big.mark = ","), " ", pcap_label)
+  }
+
   links = as.data.frame(mat) %>%
     tibble::rownames_to_column("source_name") %>%
     pivot_longer(-source_name, names_to = "target_name", values_to = "value") %>%
@@ -956,37 +981,50 @@ mat_to_sankey <- function(mat, scale) {
   list(nodes = nodes, links = as.data.frame(links))
 }
 
-sankey_kcal = mat_to_sankey(mat_kcal_cty, scale = 1e12)  # display in Tcal
-sankey_pro  = mat_to_sankey(mat_pro_cty,  scale = 1e9)   # display in kt protein
-sankey_kcal_cons = mat_to_sankey(mat_kcal_cty_cons, scale = 1e12)  # display in Tcal
-sankey_pro_cons  = mat_to_sankey(mat_pro_cty_cons,  scale = 1e9)   # display in kt protein
+sankey_kcal      = mat_to_sankey(mat_kcal_cty,      scale = 1e12, pop = pop_kcal_cty,      pcap_label = "kcal/cap/day")
+sankey_pro       = mat_to_sankey(mat_pro_cty,       scale = 1e9,  pop = pop_pro_cty,       pcap_label = "g protein/cap/day")
+sankey_kcal_cons = mat_to_sankey(mat_kcal_cty_cons, scale = 1e12, pop = pop_kcal_cty_cons, pcap_label = "kcal/cap/day")
+sankey_pro_cons  = mat_to_sankey(mat_pro_cty_cons,  scale = 1e9,  pop = pop_pro_cty_cons,  pcap_label = "g protein/cap/day")
+
+add_pcap_tooltip <- function(p, sankey) {
+  # sankeyNetwork drops all columns except name/group, so re-inject tooltip directly
+  p$x$nodes$tooltip <- sankey$nodes$tooltip
+  htmlwidgets::onRender(p, "
+    function(el, x) {
+      d3.select(el).selectAll('.node').select('title').each(function(d) {
+        if (d.tooltip) d3.select(this).text(d3.select(this).text() + '\\n' + d.tooltip);
+      });
+    }
+  ")
+}
 
 p_sankey_kcal = sankeyNetwork(
   Links = sankey_kcal$links, Nodes = sankey_kcal$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-  units = "Tcal"
-)
+  units = "Tcal", iterations = 0
+) %>% add_pcap_tooltip(sankey_kcal)
 
 p_sankey_pro = sankeyNetwork(
   Links = sankey_pro$links, Nodes = sankey_pro$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-  units = "kt protein"
-)
+  units = "kt protein", iterations = 0
+) %>% add_pcap_tooltip(sankey_pro)
+
 p_sankey_kcal_cons = sankeyNetwork(
   Links = sankey_kcal_cons$links, Nodes = sankey_kcal_cons$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-  units = "Tcal"
-)
+  units = "Tcal", iterations = 0
+) %>% add_pcap_tooltip(sankey_kcal_cons)
 
 p_sankey_pro_cons = sankeyNetwork(
   Links = sankey_pro_cons$links, Nodes = sankey_pro_cons$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-  units = "kt protein"
-)
+  units = "kt protein", iterations = 0
+) %>% add_pcap_tooltip(sankey_pro_cons)
 
 htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
@@ -1005,7 +1043,7 @@ for (sector in c("food", "nonfood")) {
       Links = sk$links, Nodes = sk$nodes,
       Source = "source", Target = "target", Value = "value", NodeID = "name",
       sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-      units = unit
+      units = unit, iterations = 0
     )
     htmlwidgets::saveWidget(p, paste0("results/sankey_", sector, "_", metric, ".html"),
                             selfcontained = FALSE)
