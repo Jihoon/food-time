@@ -635,10 +635,10 @@ tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab,
     g <- g +
       geom_point(aes(alpha = is_row)) +
       ggrepel::geom_text_repel(aes(alpha = is_row), size = 2.5, max.overlaps = 20, show.legend = FALSE) +
-      scale_alpha_manual(values = c("TRUE" = 0.35, "FALSE" = 0.7), guide = "none")
+      scale_alpha_manual(values = c("TRUE" = 0.3, "FALSE" = 1), guide = "none")
   } else {
     g <- g +
-      geom_point(alpha = 0.7) +
+      geom_point(alpha = 1) +
       ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE)
   }
   g +
@@ -691,6 +691,12 @@ pro_domestic = summary_pro_df_long %>%
   filter(footprint_type == "domestic_per_capita") %>%
   select(country, g_protein_per_cap_day = per_capita_value)
 
+kcal_domestic = summary_kcal_df_long %>%
+  filter(footprint_type == "domestic_per_capita") %>%
+  mutate(country = as.character(country)) %>%
+  select(country, kcal_per_cap_day = per_capita_value)
+
+# Food only
 tradeoff_pcap_econ = summary_food_df_long %>%
   filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita") %>%
   select(country, type, hr_per_cap_day = per_capita_value) %>%
@@ -711,18 +717,116 @@ tradeoff_pcap_full = summary_food_df_long_with_ghd %>%
   drop_na() %>%
   mutate(is_row = as.character(country) %in% row_countries)
 
+# Food + non-food
+en_domestic_total = bind_rows(
+  summary_food_df_long    %>% filter(type == "en", footprint_type == "domestic_per_capita"),
+  summary_nonfood_df_long %>% filter(type == "en", footprint_type == "domestic_per_capita")
+) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country) %>%
+  summarise(mj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365, .groups = "drop")
+
+tradeoff_pcap_total_econ = bind_rows(
+  summary_food_df_long    %>% filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita"),
+  summary_nonfood_df_long %>% filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita")
+) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(en_domestic_total, by = "country") %>%
+  inner_join(pro_domestic, by = "country") %>%
+  left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
+
+tradeoff_pcap_total_full = bind_rows(
+  summary_food_df_long_with_ghd %>%
+    filter(type %in% c("hr_m", "hr_f"), country %in% cty_ghd,
+           !footprint_type %in% c("export_per_capita", "import_per_capita")),
+  summary_nonfood_df_long %>%
+    filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita",
+           as.character(country) %in% cty_ghd)
+) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(en_domestic_total, by = "country") %>%
+  inner_join(pro_domestic, by = "country") %>%
+  left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
+  drop_na() %>%
+  mutate(is_row = as.character(country) %in% row_countries)
+
 p_tradeoff_pcap_econ = tradeoff_scatter(
   tradeoff_pcap_econ, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
   "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
-  paste0("Energy vs. time per capita (", year, ") — Economic"))
+  paste0("Energy vs. time per capita (", year, ") — Food, Economic"))
 
 p_tradeoff_pcap_full = tradeoff_scatter(
   tradeoff_pcap_full, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
   "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
-  paste0("Energy vs. time per capita (", year, ") — Total incl. household"))
+  paste0("Energy vs. time per capita (", year, ") — Food, Total incl. household"))
 
-ggsave(paste0("results/tradeoff_pcap_econ.pdf"), p_tradeoff_pcap_econ, width = 14, height = 6)
-ggsave(paste0("results/tradeoff_pcap_full.pdf"), p_tradeoff_pcap_full, width = 14, height = 6)
+p_tradeoff_pcap_total_econ = tradeoff_scatter(
+  tradeoff_pcap_total_econ, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
+  "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
+  paste0("Energy vs. time per capita (", year, ") — Food + non-food, Economic"))
+
+p_tradeoff_pcap_total_full = tradeoff_scatter(
+  tradeoff_pcap_total_full, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
+  "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
+  paste0("Energy vs. time per capita (", year, ") — Food + non-food, Total incl. household"))
+
+ggsave(paste0("results/tradeoff_pcap_econ.pdf"),        p_tradeoff_pcap_econ,        width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_full.pdf"),        p_tradeoff_pcap_full,        width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_total_econ.pdf"),  p_tradeoff_pcap_total_econ,  width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_total_full.pdf"),  p_tradeoff_pcap_total_full,  width = 14, height = 6)
+
+# Food + non-food: normalised by kcal and protein (mirrors tradeoff_kcal/protein_econ/full)
+tradeoff_kcal_total_econ = tradeoff_pcap_total_econ %>%
+  inner_join(kcal_domestic, by = "country") %>%
+  mutate(mj_per_2000kcal = mj_per_cap_day / kcal_per_cap_day * 2000,
+         hr_per_2000kcal = hr_per_cap_day  / kcal_per_cap_day * 2000)
+
+tradeoff_kcal_total_full = tradeoff_pcap_total_full %>%
+  inner_join(kcal_domestic, by = "country") %>%
+  mutate(mj_per_2000kcal = mj_per_cap_day / kcal_per_cap_day * 2000,
+         hr_per_2000kcal = hr_per_cap_day  / kcal_per_cap_day * 2000)
+
+tradeoff_protein_total_econ = tradeoff_pcap_total_econ %>%
+  mutate(mj_per_100g_protein = mj_per_cap_day / g_protein_per_cap_day * 100,
+         hr_per_100g_protein = hr_per_cap_day  / g_protein_per_cap_day * 100)
+
+tradeoff_protein_total_full = tradeoff_pcap_total_full %>%
+  mutate(mj_per_100g_protein = mj_per_cap_day / g_protein_per_cap_day * 100,
+         hr_per_100g_protein = hr_per_cap_day  / g_protein_per_cap_day * 100)
+
+p_tradeoff_kcal_total_econ = tradeoff_scatter(
+  tradeoff_kcal_total_econ, "mj_per_2000kcal", "hr_per_2000kcal", "kcal_per_cap_day",
+  "Energy (MJ / 2000 kcal)", "Time (hr / 2000 kcal)", "kcal/cap/day",
+  paste0("Energy vs. time per 2000 kcal (", year, ") — Food + non-food, Economic"))
+
+p_tradeoff_kcal_total_full = tradeoff_scatter(
+  tradeoff_kcal_total_full, "mj_per_2000kcal", "hr_per_2000kcal", "kcal_per_cap_day",
+  "Energy (MJ / 2000 kcal)", "Time (hr / 2000 kcal)", "kcal/cap/day",
+  paste0("Energy vs. time per 2000 kcal (", year, ") — Food + non-food, Total incl. household"))
+
+p_tradeoff_protein_total_econ = tradeoff_scatter(
+  tradeoff_protein_total_econ, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time per 100 g protein (", year, ") — Food + non-food, Economic"))
+
+p_tradeoff_protein_total_full = tradeoff_scatter(
+  tradeoff_protein_total_full, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time per 100 g protein (", year, ") — Food + non-food, Total incl. household"))
+
+p_tradeoff_total_econ = (p_tradeoff_kcal_total_econ | p_tradeoff_protein_total_econ) +
+  plot_layout(guides = "collect") & theme(legend.position = "right")
+p_tradeoff_total_full = (p_tradeoff_kcal_total_full | p_tradeoff_protein_total_full) +
+  plot_layout(guides = "collect") & theme(legend.position = "right")
+
+ggsave(paste0("results/tradeoff_total_econ.pdf"), p_tradeoff_total_econ, width = 20, height = 8)
+ggsave(paste0("results/tradeoff_total_full.pdf"), p_tradeoff_total_full, width = 20, height = 8)
 
 
 
