@@ -286,7 +286,7 @@ plot_countries <- function(df, ylabel, maintitle) {
   g <- g + scale_fill_manual(values=c_scheme)
 
   if (has_row) {
-    g <- g + scale_alpha_manual(values=c("TRUE"=0.3, "FALSE"=1.0), guide="none")
+    g <- g + scale_alpha_manual(values=c("TRUE"=0.3, "FALSE"=0.9), guide="none")
   }
 
   print(g)
