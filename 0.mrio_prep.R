@@ -84,13 +84,14 @@ EXIO_reg = data.table::fread(paste0(EXIO_path, "/unit.txt"), header = T)
 n_reg_EXIO = length(unique(EXIO_reg$region)) # = 49
 EXIO_sect = unique(EXIO_reg$sector)
 
-# Take the 'net energy'
+# Take the 'net energy' or 'final energy'?
 # Note: "A net energy use account includes the energy content of all energy products 
 # before being combusted or used for non-energy purposes, as well as the pseudo renewable energy 
 # (before it is transformed into electricity or heat). So, it is not the output of 
 # the electricity and heat generating industries, but only the input to it. 
 # In other words, it is the final energy use, but with the inputs into heat and 
 # electricity generation instead of the outputs." - Rasul et al. (2024) 
+# Currently taking 'final energy' (ene[2,]) 
 ene_net = matrix(ene[2,])
 
 # Take the total male/female labor hours (direct)
