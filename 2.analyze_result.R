@@ -991,8 +991,6 @@ p_tradeoff_protein_nonfood_econlabor = tradeoff_scatter(
 
 p_tradeoff_nonfood_econlabor = (p_tradeoff_kcal_nonfood_econlabor | p_tradeoff_protein_nonfood_econlabor) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
-p_tradeoff_nonfood_allwork = (p_tradeoff_kcal_nonfood_allwork | p_tradeoff_protein_nonfood_allwork) +
-  plot_layout(guides = "collect") & theme(legend.position = "right")
 
 ggsave(paste0("results/tradeoff_convfac_nonfood_econlabor.pdf"), p_tradeoff_nonfood_econlabor, width = 20, height = 8)
 
