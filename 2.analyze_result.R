@@ -1486,32 +1486,36 @@ htmlwidgets::saveWidget(p_sankey_combined_kcal, "results/sankey_combined_kcal.ht
 htmlwidgets::saveWidget(p_sankey_combined_pro,  "results/sankey_combined_protein.html",
                         selfcontained = FALSE)
 
-# Food-sector labor time Sankeys — total, male, and female.
+# Food- and non-food-sector labor time Sankeys — total, male, and female.
 # Left nodes (prod): country where labor is expended in the food supply chain.
 # Right nodes (cons): country whose food consumption demands that labor.
-for (hr_label in c("total", "hr_m", "hr_f")) {
-  mat_hr <- switch(hr_label,
-    total = l_food_country$hr_m + l_food_country$hr_f,
-    hr_m  = l_food_country$hr_m,
-    hr_f  = l_food_country$hr_f
-  )
-  pcap_label <- switch(hr_label,
-    total = "hr/cap/day (total)",
-    hr_m  = "hr/cap/day (male)",
-    hr_f  = "hr/cap/day (female)"
-  )
+for (sector in c("food", "nonfood")) {
+  l_country <- if (sector == "food") l_food_country else l_nonfood_country
 
-  res    <- agg_to_country_sankey(mat_hr)
-  sk     <- mat_to_sankey(res$mat, scale = 1e3, pop = res$pop, pcap_label = pcap_label)
-  p      <- sankeyNetwork(
-    Links = sk$links, Nodes = sk$nodes,
-    Source = "source", Target = "target", Value = "value", NodeID = "name",
-    sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-    units = "Ghr", iterations = 0
-  ) %>% add_pcap_tooltip(sk)
+  for (hr_label in c("total", "hr_m", "hr_f")) {
+    mat_hr <- switch(hr_label,
+      total = l_country$hr_m + l_country$hr_f,
+      hr_m  = l_country$hr_m,
+      hr_f  = l_country$hr_f
+    )
+    pcap_label <- switch(hr_label,
+      total = "hr/cap/day (total)",
+      hr_m  = "hr/cap/day (male)",
+      hr_f  = "hr/cap/day (female)"
+    )
 
-  htmlwidgets::saveWidget(p, paste0("results/sankey_hr_food_", hr_label, ".html"),
-                          selfcontained = FALSE)
+    res <- agg_to_country_sankey(mat_hr)
+    sk  <- mat_to_sankey(res$mat, scale = 1e3, pop = res$pop, pcap_label = pcap_label)
+    p   <- sankeyNetwork(
+      Links = sk$links, Nodes = sk$nodes,
+      Source = "source", Target = "target", Value = "value", NodeID = "name",
+      sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+      units = "Ghr", iterations = 0
+    ) %>% add_pcap_tooltip(sk)
+
+    htmlwidgets::saveWidget(p, paste0("results/sankey_hr_", sector, "_", hr_label, ".html"),
+                            selfcontained = FALSE)
+  }
 }
 
 # Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
