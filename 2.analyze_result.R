@@ -1486,6 +1486,27 @@ htmlwidgets::saveWidget(p_sankey_combined_kcal, "results/sankey_combined_kcal.ht
 htmlwidgets::saveWidget(p_sankey_combined_pro,  "results/sankey_combined_protein.html",
                         selfcontained = FALSE)
 
+# Food-sector labor time Sankey (total = male + female).
+# Left nodes (prod): country where labor is expended in the food supply chain.
+# Right nodes (cons): country whose food consumption demands that labor.
+# No loss nodes: the labor matrix is already a complete footprint — all labor
+# originates somewhere and is attributed to a consuming country.
+mat_hr_food_total <- l_food_country$hr_m + l_food_country$hr_f
+
+res_hr_food   <- agg_to_country_sankey(mat_hr_food_total)
+sankey_hr_food <- mat_to_sankey(res_hr_food$mat, scale = 1e3,
+                                pop = res_hr_food$pop, pcap_label = "hr/cap/day")
+
+p_sankey_hr_food <- sankeyNetwork(
+  Links = sankey_hr_food$links, Nodes = sankey_hr_food$nodes,
+  Source = "source", Target = "target", Value = "value", NodeID = "name",
+  sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+  units = "Ghr", iterations = 0
+) %>% add_pcap_tooltip(sankey_hr_food)
+
+htmlwidgets::saveWidget(p_sankey_hr_food, "results/sankey_hr_food.html",
+                        selfcontained = FALSE)
+
 # Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
 for (sector in c("food", "nonfood")) {
   l_country = if (sector == "food") l_food_country else l_nonfood_country
