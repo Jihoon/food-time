@@ -1302,20 +1302,44 @@ res_pro_cty  = agg_to_country_sankey(agg_country_footprint(FABIO_x_hh_pro));
 mat_pro_cty  = res_pro_cty$mat;  
 pop_pro_cty  = res_pro_cty$pop
 
+# Helper: map a Sankey node label to its continent.
+# Labels are either iso3c codes (top countries) or "Other {continent}".
+label_to_continent <- function(labels) {
+  other <- grepl("^Other ", labels)
+  cont  <- ifelse(other,
+                  sub("^Other ", "", labels),
+                  regions$continent[match(labels, regions$iso3c)])
+  ifelse(is.na(cont), "World", cont)
+}
+
+# Colour scale: one distinct colour per continent, shared across all Sankeys.
+.cont_levs      <- sort(unique(c(na.omit(regions$continent), "World")))
+.cont_pal       <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999")
+sankey_cont_cols <- setNames(.cont_pal[seq_along(.cont_levs)], .cont_levs)
+sankey_colour_scale <- htmlwidgets::JS(sprintf(
+  'd3.scaleOrdinal().domain([%s]).range([%s])',
+  paste0('"', .cont_levs, '"', collapse = ", "),
+  paste0('"', .cont_pal[seq_along(.cont_levs)], '"', collapse = ", ")
+))
+rm(.cont_levs, .cont_pal)
+
 # Convert continent×continent matrix to Sankey links/nodes
 # Producer nodes sit on the left, consumer nodes on the right (avoids self-loop issue)
-mat_to_sankey <- function(mat, scale, pop = NULL, pcap_label = NULL) {
+mat_to_sankey <- function(mat, scale, pop = NULL, pcap_label = NULL, digits = 1, pcap_scale = 1) {
   conts = rownames(mat)
   prod_names = conts[order(rowSums(mat), decreasing = TRUE)]
   cons_names = colnames(mat)[order(colSums(mat), decreasing = TRUE)]
-  nodes = data.frame(name = c(paste0(prod_names, " (prod)"), paste0(cons_names, " (cons)")))
+  nodes = data.frame(
+    name  = c(paste0(prod_names, " (prod)"), paste0(cons_names, " (cons)")),
+    group = label_to_continent(c(prod_names, cons_names))
+  )
 
   if (!is.null(pop) && !is.null(pcap_label)) {
     prod_pop = pop$pop[match(prod_names, pop$label)]
     cons_pop = pop$pop[match(cons_names, pop$label)]
-    pcap = c(rowSums(mat)[prod_names] / prod_pop / 365,
-             colSums(mat)[cons_names] / cons_pop / 365)
-    nodes$tooltip = paste0(formatC(pcap, format = "f", digits = 1, big.mark = ","), " ", pcap_label)
+    pcap = c(rowSums(mat)[prod_names] / prod_pop / 365 * pcap_scale,
+             colSums(mat)[cons_names] / cons_pop / 365 * pcap_scale)
+    nodes$tooltip = paste0(formatC(pcap, format = "f", digits = digits, big.mark = ","), " ", pcap_label)
   }
 
   links = as.data.frame(mat) %>%
@@ -1351,9 +1375,9 @@ mat_to_sankey_with_loss <- function(mat_prod, mat_cons, scale,
     name  = c(paste0(prod_ord, " (prod)"),
               paste0(cons_ord, " (cons)"),
               paste0(loss_ord, " (loss)")),
-    group = c(rep("prod", length(prod_ord)),
-              rep("cons", length(cons_ord)),
-              rep("loss", length(loss_ord)))
+    group = c(label_to_continent(prod_ord),
+              label_to_continent(cons_ord),
+              label_to_continent(loss_ord))
   )
 
   if (!is.null(pop) && !is.null(pcap_label)) {
@@ -1416,34 +1440,97 @@ add_pcap_tooltip <- function(p, sankey) {
   ")
 }
 
+add_continent_legend <- function(p) {
+  domain_json <- paste0('["', paste(names(sankey_cont_cols), collapse = '","'), '"]')
+  range_json  <- paste0('["', paste(unname(sankey_cont_cols), collapse = '","'), '"]')
+  htmlwidgets::onRender(p, sprintf("
+    function(el, x) {
+      var domain = %s;
+      var range  = %s;
+      var legW   = 120;
+      var svg    = d3.select(el).select('svg');
+      var mainG  = svg.select('g');
+
+      // Shift the diagram right to make room for the legend on the left
+      var t = mainG.attr('transform') || 'translate(0,0)';
+      var m = t.match(/translate\\(\\s*([^,\\s]+)[,\\s]+([^)\\s]+)\\s*\\)/);
+      var tx = m ? +m[1] : 0, ty = m ? +m[2] : 0;
+      mainG.attr('transform', 'translate(' + (tx + legW) + ',' + ty + ')');
+      svg.attr('width', (+svg.attr('width') || el.offsetWidth) + legW);
+
+      // Continent legend
+      var leg = svg.append('g')
+        .attr('class', 'cont-legend')
+        .attr('transform', 'translate(8, 10)');
+      domain.forEach(function(d, i) {
+        var g = leg.append('g').attr('transform', 'translate(0,' + i * 20 + ')');
+        g.append('rect')
+          .attr('width', 13).attr('height', 13)
+          .attr('fill', range[i]).attr('opacity', 0.85);
+        g.append('text')
+          .attr('x', 18).attr('y', 11)
+          .style('font-size', '12px').style('font-family', 'sans-serif')
+          .text(d);
+      });
+
+      // Node total labels — vertical text centred on each block
+      var fmt   = d3.format('.3s');
+      var units = x.options.units || '';
+      mainG.selectAll('.node').each(function(d) {
+        if (d.dy < 30) return;
+        var cx = d.dx / 2, cy = d.dy / 2;
+        d3.select(this).append('text')
+          .attr('class', 'node-total')
+          .attr('transform', 'rotate(-90,' + cx + ',' + cy + ')')
+          .attr('x', cx).attr('y', cy)
+          .attr('dy', '0.35em')
+          .attr('text-anchor', 'middle')
+          .style('font-size', '9px')
+          .style('font-family', 'sans-serif')
+          .style('fill', '#333')
+          .style('stroke', 'white')
+          .style('stroke-width', '2.5px')
+          .style('paint-order', 'stroke fill')
+          .style('pointer-events', 'none')
+          .text(fmt(d.value) + ' ' + units);
+      });
+    }
+  ", domain_json, range_json))
+}
+
 p_sankey_kcal = sankeyNetwork(
   Links = sankey_kcal$links, Nodes = sankey_kcal$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "Tcal", iterations = 0
-) %>% add_pcap_tooltip(sankey_kcal)
+) %>% add_pcap_tooltip(sankey_kcal) %>% add_continent_legend()
 
 p_sankey_pro = sankeyNetwork(
   Links = sankey_pro$links, Nodes = sankey_pro$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "kt protein", iterations = 0
-) %>% add_pcap_tooltip(sankey_pro)
+) %>% add_pcap_tooltip(sankey_pro) %>% add_continent_legend()
 
 p_sankey_kcal_cons = sankeyNetwork(
   Links = sankey_kcal_cons$links, Nodes = sankey_kcal_cons$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "Tcal", iterations = 0
-) %>% add_pcap_tooltip(sankey_kcal_cons)
+) %>% add_pcap_tooltip(sankey_kcal_cons) %>% add_continent_legend()
 
 p_sankey_pro_cons = sankeyNetwork(
   Links = sankey_pro_cons$links, Nodes = sankey_pro_cons$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "kt protein", iterations = 0
-) %>% add_pcap_tooltip(sankey_pro_cons)
+) %>% add_pcap_tooltip(sankey_pro_cons) %>% add_continent_legend()
 
+# These are without  losses.
 htmlwidgets::saveWidget(p_sankey_kcal, "results/sankey_kcal.html",     selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_pro,  "results/sankey_protein.html",  selfcontained = FALSE)
 htmlwidgets::saveWidget(p_sankey_kcal_cons, "results/sankey_kcal_cons.html",     selfcontained = FALSE)
@@ -1468,18 +1555,18 @@ sankey_combined_pro  <- mat_to_sankey_with_loss(
 p_sankey_combined_kcal <- sankeyNetwork(
   Links = sankey_combined_kcal$links, Nodes = sankey_combined_kcal$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
-  NodeGroup = "group",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "Tcal", iterations = 0
-) %>% add_pcap_tooltip(sankey_combined_kcal)
+) %>% add_pcap_tooltip(sankey_combined_kcal) %>% add_continent_legend()
 
 p_sankey_combined_pro <- sankeyNetwork(
   Links = sankey_combined_pro$links, Nodes = sankey_combined_pro$nodes,
   Source = "source", Target = "target", Value = "value", NodeID = "name",
-  NodeGroup = "group",
+  NodeGroup = "group", colourScale = sankey_colour_scale,
   sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
   units = "kt protein", iterations = 0
-) %>% add_pcap_tooltip(sankey_combined_pro)
+) %>% add_pcap_tooltip(sankey_combined_pro) %>% add_continent_legend()
 
 htmlwidgets::saveWidget(p_sankey_combined_kcal, "results/sankey_combined_kcal.html",
                         selfcontained = FALSE)
@@ -1499,42 +1586,42 @@ for (sector in c("food", "nonfood")) {
       hr_f  = l_country$hr_f
     )
     pcap_label <- switch(hr_label,
-      total = "hr/cap/day (total)",
-      hr_m  = "hr/cap/day (male)",
-      hr_f  = "hr/cap/day (female)"
+      total = "min/cap/day (total)",
+      hr_m  = "min/cap/day (male)",
+      hr_f  = "min/cap/day (female)"
     )
 
     res <- agg_to_country_sankey(mat_hr)
-    sk  <- mat_to_sankey(res$mat, scale = 1e3, pop = res$pop, pcap_label = pcap_label)
+    # M.hr matrix: * 1e6 converts to hr, * 60 converts to min → pcap_scale = 6e7
+    sk  <- mat_to_sankey(res$mat, scale = 1e3, pop = res$pop, pcap_label = pcap_label, digits = 2,
+                         pcap_scale = 6e7)
     p   <- sankeyNetwork(
       Links = sk$links, Nodes = sk$nodes,
       Source = "source", Target = "target", Value = "value", NodeID = "name",
+      NodeGroup = "group", colourScale = sankey_colour_scale,
       sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
       units = "Ghr", iterations = 0
-    ) %>% add_pcap_tooltip(sk)
+    ) %>% add_pcap_tooltip(sk) %>% add_continent_legend()
 
     htmlwidgets::saveWidget(p, paste0("results/sankey_hr_", sector, "_", hr_label, ".html"),
                             selfcontained = FALSE)
   }
 }
 
-# Sankeys for energy (TJ→EJ, ÷1e6) and labor (M.hour→Ghr, ÷1e3) by food/non-food sector
+# Sankeys for energy (TJ→EJ, ÷1e6) by food/non-food sector
 for (sector in c("food", "nonfood")) {
   l_country = if (sector == "food") l_food_country else l_nonfood_country
-  for (metric in c("en", "hr_m", "hr_f")) {
-    scale = if (metric == "en") 1e6 else 1e3
-    unit  = if (metric == "en") "EJ" else "Ghr"
-    mat_cont = agg_to_country_sankey(l_country[[metric]])
-    sk = mat_to_sankey(mat_cont, scale = scale)
-    p  = sankeyNetwork(
-      Links = sk$links, Nodes = sk$nodes,
-      Source = "source", Target = "target", Value = "value", NodeID = "name",
-      sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-      units = unit, iterations = 0
-    )
-    htmlwidgets::saveWidget(p, paste0("results/sankey_", sector, "_", metric, ".html"),
-                            selfcontained = FALSE)
-  }
+  res = agg_to_country_sankey(l_country[["en"]])
+  sk  = mat_to_sankey(res$mat, scale = 1e6)
+  p   = sankeyNetwork(
+    Links = sk$links, Nodes = sk$nodes,
+    Source = "source", Target = "target", Value = "value", NodeID = "name",
+    NodeGroup = "group", colourScale = sankey_colour_scale,
+    sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
+    units = "EJ", iterations = 0
+  ) %>% add_continent_legend()
+  htmlwidgets::saveWidget(p, paste0("results/sankey_", sector, "_en.html"),
+                          selfcontained = FALSE)
 }
 
 # Country-wise production/consumption/export/import summary (kcal/capita/day)
