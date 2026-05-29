@@ -752,18 +752,20 @@ plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
     theme(legend.position   = "right",
           strip.text        = if (show_strip) element_text(size = 13) else element_blank(),
           axis.text         = element_text(size = 12),
-          axis.title        = element_text(size = 13),
-          axis.title.y.right = element_text(color = "grey50", size = 13))
+          axis.text.x       = element_text(size = 12, angle = 45, hjust = 1),
+          axis.title        = element_text(size = 15),
+          axis.title.y.right = element_text(color = "grey50", size = 15),
+          panel.spacing     = unit(1.2, "cm"))
 }
 
-# labor_energy: 3 metrics, bar_width = 0.6; kcal_protein: 2 metrics, bar_width = 0.4 → same physical width
+# labor_energy: 3 metrics, bar_width = 0.85; kcal_protein: 2 metrics, bar_width = 0.57 → same physical width
 # strip shown only on bottom plot (top of its panel = seam between plots)
-p_select_labor_energy = plot_select_country_dual(mode = "labor_energy", bar_width = 0.6, show_strip = FALSE)
-p_select_kcal_protein  = plot_select_country_dual(mode = "kcal_protein", bar_width = 0.4, show_strip = TRUE)
+p_select_labor_energy = plot_select_country_dual(mode = "labor_energy", bar_width = 0.85, show_strip = FALSE)
+p_select_kcal_protein  = plot_select_country_dual(mode = "kcal_protein", bar_width = 0.57, show_strip = TRUE)
 p_select_combined = (p_select_labor_energy / p_select_kcal_protein) +
   plot_layout(guides = "collect") &
   theme(legend.position = "right", legend.text = element_text(size = 12))
-ggsave("results/selected_country_dual_axis.pdf", p_select_combined, width = 14, height = 12)
+ggsave("results/selected_country_dual_axis.pdf", p_select_combined, width = 15, height = 10)
 
 
 #### Energy-time tradeoff ####
@@ -1384,6 +1386,9 @@ mat_y = as.matrix(Y_sq)
 # Save total consumption kcal trade between countries
 saveRDS(mat_y, file.path("data/calorie_trade_mat_cons.rds")) # in kcal
 
+
+mat_y = readRDS(file.path("data/calorie_trade_mat_cons.rds")) # in kcal
+
 # Summary matrix by country (by row)
 mat_cons = get_mat_summary(mat_y)
 
@@ -1800,14 +1805,14 @@ for (sector in c("food", "nonfood")) {
 
     res <- agg_to_country_sankey(mat_hr)
     # M.hr matrix: * 1e6 converts to hr, * 60 converts to min → pcap_scale = 6e7
-    sk  <- mat_to_sankey(res$mat, scale = 1e3, pop = res$pop, pcap_label = pcap_label, digits = 2,
+    sk  <- mat_to_sankey(res$mat, scale = 1, pop = res$pop, pcap_label = pcap_label, digits = 2,
                          pcap_scale = 6e7)
     p   <- sankeyNetwork(
       Links = sk$links, Nodes = sk$nodes,
       Source = "source", Target = "target", Value = "value", NodeID = "name",
       NodeGroup = "group", colourScale = sankey_colour_scale,
       sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-      units = "Ghr", iterations = 0
+      units = "Mhr", iterations = 0
     ) %>% add_pcap_tooltip(sk) %>% add_continent_legend()
 
     htmlwidgets::saveWidget(p, paste0("results/sankey_hr_", sector, "_", hr_label, ".html"),
@@ -1815,17 +1820,17 @@ for (sector in c("food", "nonfood")) {
   }
 }
 
-# Sankeys for energy (TJ→EJ, ÷1e6) by food/non-food sector
+# Sankeys for energy (TJ→PJ, ÷1e3) by food/non-food sector
 for (sector in c("food", "nonfood")) {
   l_country = if (sector == "food") l_food_country else l_nonfood_country
   res = agg_to_country_sankey(l_country[["en"]])
-  sk  = mat_to_sankey(res$mat, scale = 1e6)
+  sk  = mat_to_sankey(res$mat, scale = 1e3)
   p   = sankeyNetwork(
     Links = sk$links, Nodes = sk$nodes,
     Source = "source", Target = "target", Value = "value", NodeID = "name",
     NodeGroup = "group", colourScale = sankey_colour_scale,
     sinksRight = FALSE, fontSize = 13, nodeWidth = 20, nodePadding = 10,
-    units = "EJ", iterations = 0
+    units = "PJ", iterations = 0
   ) %>% add_continent_legend()
   htmlwidgets::saveWidget(p, paste0("results/sankey_", sector, "_en.html"),
                           selfcontained = FALSE)
