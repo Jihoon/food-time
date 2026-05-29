@@ -690,6 +690,81 @@ plot_select_country = function(isos = c("USA", "AUT", "CHN", "IND")) {
 p_select_country = plot_select_country()
 ggsave("results/selected_country_comparison.pdf", p_select_country, width = 18, height = 10)
 
+# Country-arranged comparison with dual y-axis
+plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
+                                    mode       = c("labor_energy", "kcal_protein"),
+                                    bar_width  = 0.6,
+                                    show_strip = TRUE) {
+  mode = match.arg(mode)
+  df = make_select_country_data(isos)
+
+  fill_vals = c(
+    "domestic | food sector"     = "#4e9af1",
+    "domestic | non-food sector" = "#f1884e",
+    "domestic | —"               = "#2ca02c",
+    "import | food sector"       = "#91c4f8",
+    "import | non-food sector"   = "#f8ba91",
+    "import | —"                 = "#9467bd"
+  )
+  fill_labels = c(
+    "domestic | food sector"     = "Domestic: food",
+    "domestic | non-food sector" = "Domestic: non-food",
+    "domestic | —"               = "Domestic",
+    "import | food sector"       = "Import: food",
+    "import | non-food sector"   = "Import: non-food",
+    "import | —"                 = "Import"
+  )
+
+  df_abs = df %>%
+    mutate(fill_grp = factor(paste(flow, sector, sep = " | "), levels = names(fill_vals))) %>%
+    group_by(country, fill_grp, metric) %>%
+    summarise(value = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+  if (mode == "labor_energy") {
+    primary_pat   = "labor";       secondary_pat = "Energy"
+    y_primary_lab = "Labor (hr/cap/day)"
+    y_second_lab  = "Energy (GJ/cap/yr)"
+  } else {
+    primary_pat   = "Food supply"; secondary_pat = "Protein"
+    y_primary_lab = "Food supply (kcal/cap/day)"
+    y_second_lab  = "Protein supply (g/cap/day)"
+  }
+
+  df_sel = df_abs %>% filter(grepl(paste(primary_pat, secondary_pat, sep = "|"), as.character(metric)))
+
+  totals = df_sel %>% group_by(country, metric) %>% summarise(tot = sum(value), .groups = "drop")
+  scale_fac = max(totals$tot[grepl(primary_pat,   as.character(totals$metric))], na.rm = TRUE) /
+              max(totals$tot[grepl(secondary_pat, as.character(totals$metric))], na.rm = TRUE)
+
+  df_scaled = df_sel %>%
+    mutate(y_plot = ifelse(grepl(secondary_pat, as.character(metric)), value * scale_fac, value))
+
+  ggplot(df_scaled, aes(x = metric, y = y_plot, fill = fill_grp)) +
+    geom_col(width = bar_width, position = "stack") +
+    facet_wrap(~country, nrow = 1) +
+    scale_fill_manual(values = fill_vals, labels = fill_labels, name = NULL) +
+    scale_y_continuous(
+      name     = y_primary_lab,
+      sec.axis = sec_axis(~ . / scale_fac, name = y_second_lab)
+    ) +
+    labs(x = NULL) +
+    theme_minimal() +
+    theme(legend.position   = "right",
+          strip.text        = if (show_strip) element_text(size = 13) else element_blank(),
+          axis.text         = element_text(size = 12),
+          axis.title        = element_text(size = 13),
+          axis.title.y.right = element_text(color = "grey50", size = 13))
+}
+
+# labor_energy: 3 metrics, bar_width = 0.6; kcal_protein: 2 metrics, bar_width = 0.4 → same physical width
+# strip shown only on bottom plot (top of its panel = seam between plots)
+p_select_labor_energy = plot_select_country_dual(mode = "labor_energy", bar_width = 0.6, show_strip = FALSE)
+p_select_kcal_protein  = plot_select_country_dual(mode = "kcal_protein", bar_width = 0.4, show_strip = TRUE)
+p_select_combined = (p_select_labor_energy / p_select_kcal_protein) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right", legend.text = element_text(size = 12))
+ggsave("results/selected_country_dual_axis.pdf", p_select_combined, width = 14, height = 12)
+
 
 #### Energy-time tradeoff ####
 library(ggrepel)
