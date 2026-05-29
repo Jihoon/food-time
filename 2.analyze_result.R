@@ -850,6 +850,72 @@ p_tradeoff_econlabor_noneconsize = (p_tradeoff_kcal_econlabor_noneconsize | p_tr
 
 ggsave(paste0("results/tradeoff_convfac_econlabor_noneconsize.pdf"), p_tradeoff_econlabor_noneconsize, width = 20, height = 8)
 
+# Protein scatter sized by protein import share: import / (domestic + import)
+protein_import_share = summary_pro_df_long %>%
+  filter(cat %in% c("domestic", "import")) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country) %>%
+  summarise(
+    protein_import_share = sum(per_capita_value[cat == "import"], na.rm = TRUE) /
+      sum(per_capita_value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+tradeoff_protein_econlabor_importshare = tradeoff_protein_econlabor_noneconsize %>%
+  left_join(protein_import_share, by = "country") %>%
+  drop_na(protein_import_share)
+
+x_lim_importshare = range(tradeoff_protein_econlabor_importshare$mj_per_100g_protein, na.rm = TRUE)
+
+p_importshare_top = tradeoff_scatter(
+  tradeoff_protein_econlabor_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
+  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Protein import share",
+  paste0("Energy vs. economic time to provision 100 g protein (", year, ") — sized by protein import share")) +
+  coord_cartesian(xlim = x_lim_importshare, ylim = c(0.7, 0.75)) +
+  scale_y_continuous(breaks = c(0.7, 0.75)) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(), axis.title.y = element_blank(),
+        strip.text = element_text(size = rel(1.5)))
+p_importshare_top$layers <- Filter(
+  function(l) !inherits(l$geom, "GeomTextRepel"), p_importshare_top$layers)
+
+p_importshare_bottom = tradeoff_scatter(
+  tradeoff_protein_econlabor_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
+  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Protein import share",
+  NULL) +
+  coord_cartesian(xlim = x_lim_importshare, ylim = c(0, 0.4)) +
+  theme(strip.text = element_blank(), legend.position = "none")
+for (i in seq_along(p_importshare_bottom$layers)) {
+  if (inherits(p_importshare_bottom$layers[[i]]$geom, "GeomTextRepel")) {
+    p_importshare_bottom$layers[[i]]$aes_params$size <- 3.5
+    p_importshare_bottom$layers[[i]]$geom_params$point.padding <- 0.8
+    p_importshare_bottom$layers[[i]]$geom_params$min.segment.length <- 0
+  }
+}
+
+# heights ratio = top range / bottom range = 0.05 / 0.4 = 1:8 → same physical scale per unit
+p_tradeoff_protein_econlabor_importshare = (p_importshare_top / p_importshare_bottom) +
+  plot_layout(heights = c(1, 8), guides = "collect") &
+  theme(legend.position = "right",
+        axis.title = element_text(size = rel(1.4)),
+        legend.text = element_text(size = rel(1.3)),
+        legend.title = element_text(size = rel(1.3)))
+
+ggsave(paste0("results/tradeoff_convfac_protein_importshare.pdf"), p_tradeoff_protein_econlabor_importshare, width = 15, height = 7)
+
+tradeoff_protein_allwork_importshare = tradeoff_protein_allwork %>%
+  mutate(country = as.character(country)) %>%
+  left_join(protein_import_share, by = "country") %>%
+  drop_na(protein_import_share)
+
+p_tradeoff_protein_allwork_importshare = tradeoff_scatter(
+  tradeoff_protein_allwork_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
+  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "Protein import share",
+  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. + non-econ labor, sized by protein import share")) +
+  coord_cartesian(ylim = c(NA, 6))
+
+ggsave(paste0("results/tradeoff_convfac_protein_allwork_importshare.pdf"), p_tradeoff_protein_allwork_importshare, width = 12, height = 8)
+
 # Consumption-based tradeoff: total (domestic + import) nutrients and hours
 # Shared consumption totals: sum domestic + import, excluding exports
 kcal_consumption = summary_kcal_df_long %>%
