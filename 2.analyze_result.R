@@ -793,7 +793,8 @@ p_tradeoff_kcal_econlabor = tradeoff_scatter(
 p_tradeoff_kcal_allwork = tradeoff_scatter(
   tradeoff_kcal_allwork, "mj_per_2000kcal", "hr_per_2000kcal", "kcal_per_cap_day",
   "Energy (MJ / 2000 kcal)", "Time (hr / 2000 kcal)", "kcal/cap/day",
-  paste0("Energy vs. time to provision 2000 kcal (", year, ") — Econ. + non-econ labor"))
+  paste0("Energy vs. time to provision 2000 kcal (", year, ") — Econ. + non-econ labor")) +
+  coord_cartesian(ylim = c(NA, 3))
 
 p_tradeoff_protein_econlabor = tradeoff_scatter(
   tradeoff_protein_econlabor, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
@@ -803,7 +804,8 @@ p_tradeoff_protein_econlabor = tradeoff_scatter(
 p_tradeoff_protein_allwork = tradeoff_scatter(
   tradeoff_protein_allwork, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
   "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. + non-econ labor"))
+  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. + non-econ labor")) +
+  coord_cartesian(ylim = c(NA, 6))
 
 p_tradeoff_econlabor = (p_tradeoff_kcal_econlabor | p_tradeoff_protein_econlabor) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
@@ -813,6 +815,40 @@ p_tradeoff_allwork = (p_tradeoff_kcal_allwork | p_tradeoff_protein_allwork) +
 
 ggsave(paste0("results/tradeoff_convfac_econlabor.pdf"), p_tradeoff_econlabor, width = 20, height = 8)
 ggsave(paste0("results/tradeoff_convfac_allwork.pdf"), p_tradeoff_allwork, width = 20, height = 8)
+
+# Econlabor scatter sized by non-economic time (GHD countries only)
+nonecon_size_kcal = summary_time_kcal %>%
+  filter(cat == "domestic", country %in% cty_ghd,
+         grepl("non.econ", footprint_type_time)) %>%
+  group_by(country, type) %>%
+  summarise(nonecon_hr_per_2000kcal = sum(hr_per_2000kcal, na.rm = TRUE), .groups = "drop")
+
+tradeoff_kcal_econlabor_noneconsize = tradeoff_kcal_econlabor %>%
+  inner_join(nonecon_size_kcal, by = c("country", "type"))
+
+nonecon_size_protein = summary_time_protein %>%
+  filter(cat == "domestic", country %in% cty_ghd,
+         grepl("non.econ", footprint_type_time)) %>%
+  group_by(country, type) %>%
+  summarise(nonecon_hr_per_100g_protein = sum(hr_per_100g_protein, na.rm = TRUE), .groups = "drop")
+
+tradeoff_protein_econlabor_noneconsize = tradeoff_protein_econlabor %>%
+  inner_join(nonecon_size_protein, by = c("country", "type"))
+
+p_tradeoff_kcal_econlabor_noneconsize = tradeoff_scatter(
+  tradeoff_kcal_econlabor_noneconsize, "mj_per_2000kcal", "hr_per_2000kcal", "nonecon_hr_per_2000kcal",
+  "Energy (MJ / 2000 kcal)", "Economic time (hr / 2000 kcal)", "Non-econ. time (hr / 2000 kcal)",
+  paste0("Energy vs. economic time to provision 2000 kcal (", year, ") — sized by non-econ. time"))
+
+p_tradeoff_protein_econlabor_noneconsize = tradeoff_scatter(
+  tradeoff_protein_econlabor_noneconsize, "mj_per_100g_protein", "hr_per_100g_protein", "nonecon_hr_per_100g_protein",
+  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Non-econ. time (hr / 100 g protein)",
+  paste0("Energy vs. economic time to provision 100 g protein (", year, ") — sized by non-econ. time"))
+
+p_tradeoff_econlabor_noneconsize = (p_tradeoff_kcal_econlabor_noneconsize | p_tradeoff_protein_econlabor_noneconsize) +
+  plot_layout(guides = "collect") & theme(legend.position = "right")
+
+ggsave(paste0("results/tradeoff_convfac_econlabor_noneconsize.pdf"), p_tradeoff_econlabor_noneconsize, width = 20, height = 8)
 
 # Consumption-based tradeoff: total (domestic + import) nutrients and hours
 # Shared consumption totals: sum domestic + import, excluding exports
