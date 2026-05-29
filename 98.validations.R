@@ -71,3 +71,68 @@ for (index in kir_block_largest_indices) {
   print(paste("This corresponds to sector", io_nonfood[kir_block_indices[row_col[1]], c("sect")], "and destination country", regions$area[row_col[2]]))
 }
 
+# Nutrient supply validation: FAOSTAT vs FABIO ####
+library(ggrepel)
+
+# Load FAOSTAT nutrient file (contains both kcal [4003] and protein [4004])
+fao_raw = read.csv("data/FAOSTAT_data_en_5-28-2026 protein.csv", check.names = FALSE)
+fao_m49_to_iso3c = fao_raw %>%
+  distinct(`Area Code (M49)`, Area) %>%
+  mutate(iso3c = countrycode::countrycode(`Area Code (M49)`,
+                                          origin = "un", destination = "iso3c",
+                                          warn = FALSE))
+
+fao_by_indicator = fao_raw %>%
+  left_join(fao_m49_to_iso3c, by = c("Area Code (M49)", "Area")) %>%
+  filter(!is.na(iso3c)) %>%
+  group_by(iso3c, Area, `Indicator Code`, Unit) %>%
+  summarise(value_cap_d = sum(Value, na.rm = TRUE), .groups = "drop")
+
+validate_nutrient = function(fao_indicator_code, fao_col, fabio_mat, fabio_col, unit_label) {
+  fao = fao_by_indicator %>%
+    filter(`Indicator Code` == fao_indicator_code) %>%
+    select(iso3c, Area, fao_val = value_cap_d)
+
+  fabio = country_summary(agg_country_footprint(fabio_mat)) %>%
+    mutate(fabio_val = (domestic_per_capita + import_per_capita) / 1e6 / 365)
+
+  cmp = fao %>%
+    inner_join(fabio %>% select(country, fabio_val), by = c("iso3c" = "country")) %>%
+    left_join(regions %>% select(iso3c, continent), by = "iso3c") %>%
+    mutate(diff_pct = (fabio_val - fao_val) / fao_val * 100)
+
+  cat(sprintf("\n--- %s ---\n", unit_label))
+  cat(sprintf("Countries matched: %d\n", nrow(cmp)))
+  cat(sprintf("Correlation:       %.3f\n", cor(cmp$fao_val, cmp$fabio_val, use = "complete")))
+  cat(sprintf("Mean %% diff:      %.1f%%\n", mean(cmp$diff_pct, na.rm = TRUE)))
+  cat(sprintf("RMSE:              %.2f %s\n",
+              sqrt(mean((cmp$fabio_val - cmp$fao_val)^2, na.rm = TRUE)), unit_label))
+  cat("Top 15 outliers by |% diff|:\n")
+  print(cmp %>% arrange(desc(abs(diff_pct))) %>%
+          select(iso3c, Area, fao_val, fabio_val, diff_pct) %>% head(15))
+
+  ggplot(cmp, aes(x = fao_val, y = fabio_val, color = continent, label = iso3c)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+    geom_point(alpha = 0.8, size = 2) +
+    ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE) +
+    scale_color_brewer(palette = "Set2") +
+    labs(x = paste0("FAOSTAT ", unit_label),
+         y = paste0("FABIO ", unit_label, " (domestic + import)"),
+         color = "Continent",
+         title = paste0(unit_label, ": FAOSTAT vs FABIO (", year, ")"),
+         caption = "Dashed line = 1:1") +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+
+p_kcal_validation = validate_nutrient("4003", "kcal_cap_d", FABIO_y_hh_cal,
+                                      "fabio_kcal_cap_d", "kcal/cap/day")
+print(p_kcal_validation)
+ggsave("results/validation_kcal_faostat_vs_fabio.pdf",
+       p_kcal_validation, width = 10, height = 8)
+
+p_pro_validation = validate_nutrient("4004", "pro_cap_d", FABIO_y_hh_pro,
+                                     "fabio_pro_cap_d", "g protein/cap/day")
+print(p_pro_validation)
+ggsave("results/validation_protein_faostat_vs_fabio.pdf",
+       p_pro_validation, width = 10, height = 8)
