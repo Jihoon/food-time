@@ -212,18 +212,48 @@ partial_ord = (summary_food_df_long_with_ghd %>% filter(country %in% partial_cty
                  summarise(d = sum(per_capita_value, na.rm=TRUE)) %>% 
                  arrange(-d))$country
 a = summary_food_df_long_with_ghd %>% filter(country %in% partial_cty) %>%
-  mutate(country = factor(country, levels = partial_ord)) %>% 
+  mutate(country = factor(country, levels = partial_ord)) %>%
   arrange(country)
-p1 = plot_countries(a %>% filter(type %in% c("hr_f")), "Female time footprint per capita (hr/day)", "")+ ylim(-1, 3.5) 
-p2 = plot_countries(a %>% filter(type %in% c("hr_m")), "Male time footprint per capita (hr/day)", "")+ ylim(-1, 3.5) 
+
+fao_pro_raw = read.csv("data/FAOSTAT_data_en_5-28-2026 protein.csv", check.names = FALSE)
+fao_pro_lookup = fao_pro_raw %>%
+  filter(`Indicator Code` == "4004") %>%
+  group_by(`Area Code (M49)`, Area) %>%
+  summarise(pro_per_cap_day = sum(Value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(iso3c = countrycode::countrycode(`Area Code (M49)`,
+                                          origin = "un", destination = "iso3c",
+                                          warn = FALSE)) %>%
+  filter(!is.na(iso3c)) %>%
+  select(country = iso3c, pro_per_cap_day)
+
+pro_partial = country_summary(agg_country_footprint(FABIO_y_hh_pro)) %>%
+  # mutate(pro_per_cap_day = (domestic_per_capita + import_per_capita) / 1e6 / 365) %>%
+  left_join(fao_pro_lookup, by = "country") %>%
+  filter(as.character(country) %in% as.character(partial_cty)) %>%
+  mutate(country = factor(as.character(country), levels = as.character(partial_ord))) %>%
+  select(country, pro_per_cap_day)
+pro_max   <- max(pro_partial$pro_per_cap_day, na.rm = TRUE)
+pro_scale <- 3.0 / pro_max
+
+p1 = plot_countries(a %>% filter(type %in% c("hr_f")), "Female time footprint per capita (hr/day)", "") +
+  geom_point(data = pro_partial, aes(x = country, y = pro_per_cap_day * pro_scale),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(-1, 3.5),
+                     sec.axis = sec_axis(~ . / pro_scale, name = "g protein/cap/day"))
+p2 = plot_countries(a %>% filter(type %in% c("hr_m")), "Male time footprint per capita (hr/day)", "") 
 p3 = plot_countries(a %>% filter(type %in% c("en")), "Energy footprint per capita (GJ/yr)", "")
 
 p_combined_partial  = p1 / p2 + plot_layout(guides = "collect") & theme(legend.position = "top",
                                                                         axis.text.x = element_blank(),
-                                                                        axis.ticks.x = element_blank()
+                                                                        axis.ticks.x = element_blank(),
+                                                                        text              = element_text(size = 15),
+                                                                        axis.text.y       = element_text(size = 22),
+                                                                        axis.title        = element_text(size = 15),
+                                                                        legend.text       = element_text(size = 22),
+                                                                        legend.title      = element_text(size = 15)
 )
 p_combined_partial[[2]] <- p_combined_partial[[2]] +
-  theme(axis.text.x = element_text(angle=90, hjust=1),
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 22),
         axis.ticks.x = element_line())
 print(p_combined_partial)
 
