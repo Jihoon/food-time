@@ -491,7 +491,7 @@ p_conversion_protein_econlabor = ggplot(
   df_convfac_protein_econlabor %>%
     filter(footprint_type_time == "domestic_per_capita") %>%
     select(country, type, footprint_type_time, hr_per_100g_protein) %>%
-    mutate(country = factor(country, levels = v_ord_protein_econ)),
+    mutate(country = factor(country, levels = v_ord_protein_econlabor)),
   aes(x = country, y = hr_per_100g_protein, fill = footprint_type_time)) +
   geom_bar(stat = "identity", position = "stack") +
   facet_wrap(~type, ncol = 1, scales = "fixed") +
@@ -837,7 +837,7 @@ tradeoff_protein_allwork = summary_time_protein %>%
   mutate(is_row = as.character(country) %in% row_countries)
 
 # Scatter plot helper: energy (x) vs time (y), sized by nutrition supply per capita
-tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab, title) {
+tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab, title, label_size = 3.5) {
   has_row <- "is_row" %in% colnames(df)
   base_aes <- aes(x = .data[[x_col]], y = .data[[y_col]], size = .data[[size_col]],
                   color = continent, label = country)
@@ -845,12 +845,12 @@ tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab,
   if (has_row) {
     g <- g +
       geom_point(aes(alpha = is_row)) +
-      ggrepel::geom_text_repel(aes(alpha = is_row), size = 2.5, max.overlaps = 20, show.legend = FALSE) +
+      ggrepel::geom_text_repel(aes(alpha = is_row), size = label_size, max.overlaps = 20, show.legend = FALSE) +
       scale_alpha_manual(values = c("TRUE" = 0.3, "FALSE" = 0.9), guide = "none")
   } else {
     g <- g +
       geom_point(alpha = 0.9) +
-      ggrepel::geom_text_repel(size = 2.5, max.overlaps = 20, show.legend = FALSE)
+      ggrepel::geom_text_repel(size = label_size, max.overlaps = 20, show.legend = FALSE)
   }
   g +
     scale_size_continuous(range = c(1, 8)) +
@@ -859,7 +859,11 @@ tradeoff_scatter <- function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab,
     labs(x = x_lab, y = y_lab, size = size_lab,
          color = "Continent", title = title) +
     theme_minimal() +
-    theme(legend.position = "right")
+    theme(legend.position = "right",
+          strip.text   = element_text(size = rel(1.5)),
+          axis.title   = element_text(size = rel(1.4)),
+          legend.text  = element_text(size = rel(1.3)),
+          legend.title = element_text(size = rel(1.3)))
 }
 
 p_tradeoff_kcal_econlabor = tradeoff_scatter(
@@ -1167,7 +1171,7 @@ p_tradeoff_pcap_econlabor = tradeoff_scatter(
 p_tradeoff_pcap_allwork = tradeoff_scatter(
   tradeoff_pcap_allwork, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
   "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
-  paste0("Energy vs. time per capita (", year, ") — Food, Total incl. household"))
+  paste0("Energy vs. time per capita (", year, ") — Food, Economic + non-economic"))
 
 p_tradeoff_pcap_nonfood_econlabor = tradeoff_scatter(
   tradeoff_pcap_nonfood_econlabor, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
