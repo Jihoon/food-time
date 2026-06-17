@@ -9,7 +9,7 @@ S_lab_male_nonfood = as.vector(lab_male_nonfood) * as.vector(x_inv)
 S_lab_female_nonfood = as.vector(lab_female_nonfood) * as.vector(x_inv)
 
 # Prepare global total bio-sector FD (final demand) matrix
-EXIO_Y_food = rowSums(EXIO_Y) * idx_food
+# EXIO_Y_food = rowSums(EXIO_Y) * idx_food
 EXIO_x_food = EXIO_x * idx_food
 
 # Calculate total food sector footprint matrices (D) for energy and labor in non-food sectors 
@@ -47,7 +47,7 @@ total_intensity_exio_by_mass = lapply(indir_sat_exio, function(d) {
 })
 names(total_intensity_exio_by_mass) <- c("en", "hr_m", "hr_f")
 
-# Validate: Check column sums of total_intensity_exio_by_mass are zero for food sectors and non-zero for non-food sectors
+# Validate: Check column sums of total_intensity_exio_by_mass are non-zero for food sectors and zero for non-food sectors
 total_intensity_exio_by_mass_check = lapply(total_intensity_exio_by_mass, function(d) {
   col_sums = colSums(d)
   print(summary(col_sums))
@@ -87,15 +87,17 @@ total_intensity_fabio = list(
 
 # This gives an intensity matrix (in the same dim as satellite (32725x23001)).
 l_int_i <- lapply(total_intensity_fabio, function(d) {
-  FP_trans = p_fabio_exio %*% (t(d) * colSums(FABIO_x_in_EXIO))
-  intensity = t(FP_trans / FABIO_x )
+  # FP_trans = p_fabio_exio %*% (t(d) * colSums(FABIO_x_in_EXIO))
+    # The line above appears to be incorrect 
+    # because it multiplies the transposed intensity matrix by the column sums of FABIO_x_in_EXIO, 
+    # which by itself total energy/labor footprint of each non-food satellite row (e.g., machienary of AUT).
+    # BUt then, mtx-multiplying p_fabio_exio can't allocate the footprint correctly to FABIO sectors. 
+    # Instead, we should first convert the intensity matrix back to a footprint matrix (by multiplying by FABIO_x) and then reorder it to match FABIO's classification. Here's the corrected code:
+  FP_trans = t(FABIO_x_in_EXIO %*% t(d)) # This gives the total energy/labor footprint for each EXIO non-food sector/origin country, mapped to FABIO food sector/country by using p_fabio_exio.
+  intensity = t(t(FP_trans) / FABIO_x )
   intensity[!is.finite(intensity)] = 0
   intensity = reorder_countries_to_FABIO(intensity, direction=1)
   return (intensity) # per ton
 })
 names(l_int_i) <- c("en", "hr_m", "hr_f")
 saveRDS(l_int_i, file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
-
-
-
-

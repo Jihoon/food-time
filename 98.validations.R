@@ -136,3 +136,12 @@ p_pro_validation = validate_nutrient("4004", "pro_cap_d", FABIO_y_hh_pro,
 print(p_pro_validation)
 ggsave("results/validation_protein_faostat_vs_fabio.pdf",
        p_pro_validation, width = 10, height = 8)
+
+
+# Check mass consistency
+sum(FABIO_x) == sum(exio_mass_x) == sum(FABIO_x_in_EXIO)
+# about 15% loss potentially due to unmapped mass for Fodder crops & Grazing
+
+# Total final energy in non-food sectors (TJ)  
+sum(indir_sat_exio[[1]]) #== sum(p_fabio_exio %*% (t(total_intensity_fabio[[1]]) * colSums(FABIO_x_in_EXIO)))
+== sum(FABIO_x_in_EXIO %*% t(total_intensity_fabio[[1]]) ) #== sum(FABIO_x * total_intensity_fabio[[1]] %*% t(p_fabio_exio))
