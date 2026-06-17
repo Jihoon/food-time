@@ -527,6 +527,74 @@ ggsave("results/conversion_protein_econlabor.pdf",    p_conversion_protein_econl
 ggsave("results/conversion_protein_nonecon.pdf", p_conversion_protein_nonecon, width = 18, height = 8)
 
 
+#### Protein g per hour: population-weighted inequality (Gini & Atkinson) ####
+
+# Helper: population-weighted Gini coefficient
+weighted_gini <- function(x, w) {
+  ok <- !is.na(x) & !is.na(w) & w > 0 & x >= 0
+  x <- x[ok]; w <- w[ok]
+  n <- length(x)
+  if (n == 0) return(NA_real_)
+  ord  <- order(x)
+  x    <- x[ord]; w <- w[ord]
+  N    <- sum(w)
+  cumw <- cumsum(w)
+  L    <- cumsum(w * x) / sum(w * x)
+  F_lo <- c(0, cumw[-n]) / N
+  F_hi <- cumw / N
+  area <- sum((F_hi - F_lo) * (c(0, L[-n]) + L) / 2)
+  1 - 2 * area
+}
+
+# Helper: population-weighted Atkinson index
+# epsilon = 0.5 (moderate aversion), 1.0 (log-utilitarian)
+weighted_atkinson <- function(x, w, epsilon = 0.5) {
+  ok <- !is.na(x) & !is.na(w) & w > 0 & x > 0
+  x <- x[ok]; w <- w[ok]
+  if (length(x) == 0) return(NA_real_)
+  N  <- sum(w)
+  mu <- sum(w * x) / N
+  ede <- if (epsilon == 1) {
+    exp(sum(w * log(x)) / N)
+  } else {
+    (sum(w * x^(1 - epsilon)) / N)^(1 / (1 - epsilon))
+  }
+  1 - ede / mu
+}
+
+pop_data_ineq <- subset(countrypops, year == yr) %>%
+  select(country = country_code_3, population)
+
+# Derive protein_g_per_hr for GHD countries: sum all domestic time components
+# (economic + non-economic) per country × gender, then invert to get g protein per hour.
+# Each gender covers ~half the national population, so weight each row by population / 2.
+protein_g_per_hr_df <- summary_time_protein %>%
+  filter(country %in% cty_ghd, cat == "domestic") %>%
+  group_by(country, type) %>%
+  summarise(hr_per_100g_protein = sum(hr_per_100g_protein, na.rm = TRUE), .groups = "drop") %>%
+  mutate(protein_g_per_hr = 100 / hr_per_100g_protein) %>%
+  left_join(pop_data_ineq, by = "country") %>%
+  mutate(weight = population / 2) %>%
+  filter(!is.na(weight), is.finite(protein_g_per_hr), protein_g_per_hr > 0)
+
+ineq_protein_df <- protein_g_per_hr_df %>%
+  summarise(
+    n_obs         = n(),
+    n_countries   = n_distinct(country),
+    mean_g_per_hr = weighted.mean(protein_g_per_hr, weight),
+    gini          = weighted_gini(protein_g_per_hr, weight),
+    atkinson_0.5  = weighted_atkinson(protein_g_per_hr, weight, epsilon = 0.5),
+    atkinson_1.0  = weighted_atkinson(protein_g_per_hr, weight, epsilon = 1.0),
+    atkinson_2.0  = weighted_atkinson(protein_g_per_hr, weight, epsilon = 2.0)
+  )
+
+print(ineq_protein_df)
+
+## Global average protein g per hour: population-weighted mean of protein_g_per_hr across GHD countries
+global_avg_protein_g_per_hr <- weighted.mean(protein_g_per_hr_df$protein_g_per_hr, protein_g_per_hr_df$weight)
+print(global_avg_protein_g_per_hr) # = 89.53 g/hr
+perfect_equality <-global_avg_protein_g_per_hr * (1-ineq_protein_df$atkinson_1.0) # = 71.62 g/hr at epsilon=1.0, which is the "equally distributed equivalent" level of protein g/hr if we had perfect equality across countries.
+
 #### Country spotlight ####
 
 make_spotlight_data = function(iso) {
