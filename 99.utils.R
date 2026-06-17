@@ -142,9 +142,44 @@ convert_intensities <- function(sat_EXIO) {
   print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_f_cap = fish_fabio_hr_f_cap[idx]))
 
 
-  return(list(sat_en_FAB = FABIO_en, 
-              sat_hr_m_FAB = FABIO_hr_m, 
+  return(list(sat_en_FAB = FABIO_en,
+              sat_hr_m_FAB = FABIO_hr_m,
               sat_hr_f_FAB = FABIO_hr_f))
+}
+
+# Claude made this one below to fix the non-food footprint being too large. 
+# But I won't use it since I made the fix myself.
+
+# Inverse of convert_mass_vecs: maps an EXIO mass vector/matrix back to FABIO classification.
+# Each EXIO sector's mass is distributed to FABIO products proportionally to their
+# contribution recorded in FABIO_x_in_EXIO (built by convert_mass_vecs).
+# Total mass is preserved for EXIO sectors that have FABIO mappings (food sectors).
+#
+# Input:  exio_vec_mass — vector (37400 or 9800) or matrix with 37400 or 9800 columns
+# Output: FABIO mass vector (23001) or matrix with 23001 columns
+convert_mass_vecs_inv <- function(exio_vec_mass, FABIO_x_in_EXIO_mat = FABIO_x_in_EXIO) {
+  n_exio_full = nrreg * length(EXIO_sect)       # 37400 = 187 countries × 200 sectors
+  n_exio_agg  = n_reg_EXIO * length(EXIO_sect)  # 9800  =  49 regions  × 200 sectors
+
+  # Coerce vectors to 1-row matrix so the rest of the logic is uniform
+  is_vec = is.null(dim(exio_vec_mass))
+  if (is_vec) exio_vec_mass = matrix(exio_vec_mass, nrow = 1)
+
+  n_cols = ncol(exio_vec_mass)
+  if (n_cols == n_exio_agg) {
+    exio_vec_mass = reorder_countries_to_FABIO(exio_vec_mass)  # K×9800 → K×37400
+  } else if (n_cols != n_exio_full) {
+    stop(paste("Input column count must be", n_exio_full, "(37400) or", n_exio_agg, "(9800)."))
+  }
+
+  # Column-normalize FABIO_x_in_EXIO: share of each FABIO product in each EXIO sector
+  col_inv = 1 / colSums(FABIO_x_in_EXIO_mat)
+  col_inv[!is.finite(col_inv)] = 0
+  col_shares = FABIO_x_in_EXIO_mat %*% Diagonal(x = col_inv)  # 23001×37400, columns sum to 1
+
+  result = exio_vec_mass %*% t(col_shares)  # K×37400 %*% 37400×23001 = K×23001
+
+  if (is_vec) as.vector(result) else result
 }
 
 
