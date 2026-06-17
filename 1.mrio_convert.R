@@ -1,13 +1,26 @@
 library(tidyverse)
 library(Matrix)
 
-source("99.utils.R")
 
 #### 1. Conversions to FABIO mass vector (123) to EXIO classifications (200, still mass) ####
 
 # Prepare a conversion mapping (qualitative) from FABIO to EXIO sector mapping (for 187 countries)
 p_fabio_exio = block_diag_repeat(as.matrix(prod_map), nrow(FABIO_reg)) 
   
+# Debugging: Find the indices of FABIO/EXIO sectors that are considered fish sectors 
+# Find fish-related FABIO rows among the 23,001 FABIO sectors/countries
+# (regex is what Claude suggested, but "fish" is enough actually.)
+fish_idx <- grep("fish|aqua|crustac|mollusc|seafood", io$item, 
+                ignore.case = TRUE)
+# Make a named vector for the 37,400 entries (187x200)
+long_idx = (expand.grid(prod = EXIO_sect, ISO=regions$iso3c) %>%
+  mutate(ISO_prod = paste0(ISO, "_", prod)))$ISO_prod
+fish_idx_l <- grep("fish|aqua|crustac|mollusc|seafood", long_idx, 
+                ignore.case = TRUE)
+
+df_fish = io %>% mutate(tonne = FABIO_x) %>% slice(fish_idx) %>%
+  left_join(pop_y %>% select(iso3c, pop), by = c("iso3c")) 
+
 convert_mass_vecs <- function (exio_vec_monetary=EXIO_x, fabio_vec_mass=FABIO_x) {
   # Convert mass vectors from FABIO classification to EXIO classification, 
   #   based on the mapping p_fabio_exio
@@ -37,6 +50,20 @@ convert_mass_vecs <- function (exio_vec_monetary=EXIO_x, fabio_vec_mass=FABIO_x)
   # Aggregate FABIO regions to EXIO regions and reorder
   exio_mass = reorder_countries_to_EXIO(v_mass) # mass vec in EXIO sec/reg (9800)
 
+  ### Diagnostic checks
+
+  # Check the mass split for fish rows
+  FABIO_mass_in_EXIO_fish <- FABIO_mass_in_EXIO[fish_idx, ]
+  # Where does fish mass land in EXIO?
+  fish_exio_sums <- colSums(FABIO_mass_in_EXIO_fish)
+  top_fish_exio <- sort(fish_exio_sums, decreasing = TRUE)[1:20]
+
+  # idx contains the original positions
+  idx <- order(fish_exio_sums, decreasing = TRUE)[1:20]
+
+  cat("Top EXIO sectors receiving fish mass:\n")
+  print(data.frame(sector = long_idx[idx], mass = fish_exio_sums[idx]))
+
   return(list(exio_mass, FABIO_mass_in_EXIO))
 }
 
@@ -61,6 +88,10 @@ dir_sat_exio = list(
 # Get direct energy/labor (hr) satellites in FABIO sectors
 # dim = (23001, 37400), which can be row/column-summed to get vectors.
 dir_sat_FAB = convert_intensities(dir_sat_exio)
+
+# TEST: sum(dir_sat_FAB[[2]]) ~ sum(matrix(lab_male*idx_food, nrow=1)) 
+# TEST: sum(dir_sat_FAB[[3]]) ~ sum(matrix(lab_female*idx_food, nrow=1)) 
+
 
 # Save FABIO-based intensities (per tonne of product) by summing the satellite accounts and dividing by FABIO_x (mass vector in FABIO classification))
 l_int_d <- lapply(dir_sat_FAB, function(d) {

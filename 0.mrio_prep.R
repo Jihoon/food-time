@@ -1,6 +1,11 @@
 library(tidyverse)
 library(Matrix)
 
+# Population
+library(gt)
+data(countrypops)
+
+source("99.utils.R")
 
 # Key parameters for config
 year = yr = 2020  # Year when both labor and energy satellites are available
@@ -79,19 +84,28 @@ EXIO_reg = data.table::fread(paste0(EXIO_path, "/unit.txt"), header = T)
 n_reg_EXIO = length(unique(EXIO_reg$region)) # = 49
 EXIO_sect = unique(EXIO_reg$sector)
 
-# Take the 'net energy'
+# Take the 'net energy' or 'final energy'?
 # Note: "A net energy use account includes the energy content of all energy products 
 # before being combusted or used for non-energy purposes, as well as the pseudo renewable energy 
 # (before it is transformed into electricity or heat). So, it is not the output of 
 # the electricity and heat generating industries, but only the input to it. 
 # In other words, it is the final energy use, but with the inputs into heat and 
 # electricity generation instead of the outputs." - Rasul et al. (2024) 
+# Currently taking 'final energy' (ene[2,]) 
 ene_net = matrix(ene[2,])
 
 # Take the total male/female labor hours (direct)
 lab_male = matrix(colSums(lab[c(7,9,11),]))
 lab_female = matrix(colSums(lab[c(8,10,12),]))
 
+
+#### 2.1. Population import ####
+# Population data for per capita calculations
+pop_y = subset(countrypops, year == yr) %>%
+  select(iso3c = country_code_3, pop = population)
+
+pop_y = pop_y %>% right_join(regions, by = "iso3c") %>%
+  select(iso3c, pop)
 
 
 #### 3. Prepare/Read indirect satellite through Leontief inverse 'L' ####
@@ -109,6 +123,30 @@ lab_female = matrix(colSums(lab[c(8,10,12),]))
 
 # Load Leontief inverse L
 EXIO_L = readRDS(file = paste0("data/EXIO_L_", year, "_", type, ".rds"))
+
+# Note: This is a prep step to derive indirect energy and labor use satellites for non-food sectors only.       
+
+i_exio_bio_sectors = which(colSums(prod_map) > 0) 
+# Remove some bio-sectors that are not edible.
+bio_nonfood = c("Wool, silk-worm cocoons", "Chemicals nec", "Plant-based fibers")
+i_exio_food_sectors = setdiff(i_exio_bio_sectors, 
+                              which(EXIO_sect %in% bio_nonfood))
+# Make a boolean vector for food sectors
+idx_food = colSums(prod_map) > 0
+idx_food[which(EXIO_sect %in% bio_nonfood)] = FALSE
+idx_nonfood = !idx_food 
+
+# Add test sum(idx_food) + sum(idx_nonfood) == 200
+
+# Sector names
+exio_food_sectors = EXIO_reg$sector[i_exio_food_sectors]
+exio_nonfood_sectors = EXIO_reg$sector[setdiff(1:200, i_exio_food_sectors)] # 175 rows
+exio_bio_sectors = EXIO_reg$sector[i_exio_bio_sectors]
+  
+# Derive indirect energy and labor satellites (F mtx) for non-food sectors (per ton)
+ene_net_nonfood = matrix(ene_net*idx_nonfood, nrow=1)
+lab_male_nonfood = matrix(lab_male*idx_nonfood, nrow=1) 
+lab_female_nonfood = matrix(lab_female*idx_nonfood, nrow=1)
 
 
 #### 4. Read Fajzel data ####

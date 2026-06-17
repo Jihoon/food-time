@@ -97,18 +97,89 @@ convert_intensities <- function(sat_EXIO) {
   exio_hr_m_intm_ordered = reorder_countries_to_FABIO(exio_hr_m_int)
   exio_hr_f_intm_ordered = reorder_countries_to_FABIO(exio_hr_f_int)
   
+  # Debugging: Check the top intensities of fish sectors in the ordered intensity vectors to see if they correspond to expected EXIO sectors and countries
+  fish_exio_hr_m_int = exio_hr_m_intm_ordered[fish_idx_l]
+  # top_fish_exio_hr_m_int = sort(fish_exio_hr_m_int, decreasing = TRUE)[1:10]
+  idx = order(fish_exio_hr_m_int, decreasing = TRUE)[1:20]
+  cat("Top EXIO sectors receiving fish (male) labor intensity (per ton):\n")
+  print(data.frame(sector = long_idx[fish_idx_l[idx]], intensity = fish_exio_hr_m_int[idx]))
+
+  fish_exio_hr_f_int = exio_hr_f_intm_ordered[fish_idx_l]
+  # top_fish_exio_hr_f_int = sort(fish_exio_hr_f_int, decreasing = TRUE)[1:10]
+  idx = order(fish_exio_hr_f_int, decreasing = TRUE)[1:20]
+  cat("Top EXIO sectors receiving fish (female) labor intensity (per ton):\n")
+  print(data.frame(sector = long_idx[fish_idx_l[idx]], intensity = fish_exio_hr_f_int[idx]))
+
   # Finally, calculate FABIO-based EXIO energy and labor use matrices for agri-food sects
   FABIO_en = FABIO_x_in_EXIO %*% Diagonal(x=exio_en_intm_ordered)
   FABIO_hr_m = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_m_intm_ordered)
   FABIO_hr_f = FABIO_x_in_EXIO %*% Diagonal(x=exio_hr_f_intm_ordered)
-  # This chuck doesn't work for (indirect) matrix satellites, since Diagonal() expects a vector.
+  # This chunk doesn't work for (indirect) matrix satellites, since Diagonal() expects a vector.
   
   # TODO: FABIO_x_in_EXIO need to be checked again for computing correct order, 
   # but looks ok for now since this will be run after convert_mass_vecs() is called.
   
-  return(list(sat_en_FAB = FABIO_en, 
-              sat_hr_m_FAB = FABIO_hr_m, 
+  # Debugging: Check the top values in the labor hours for FABIO fish sectors.
+  fish_fabio_hr_m = rowSums(FABIO_hr_m[fish_idx, ])
+  idx = order(fish_fabio_hr_m, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (male) labor hr:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_m = fish_fabio_hr_m[idx]))
+
+  fish_fabio_hr_f = rowSums(FABIO_hr_f[fish_idx, ])
+  idx = order(fish_fabio_hr_f, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (female) labor hr:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_f = fish_fabio_hr_f[idx]))
+
+  # Derive per-capita values for the top fish sectors in FABIO to check if they correspond to expected countries with high fish consumption/production.
+  fish_fabio_hr_m_cap = fish_fabio_hr_m / pop_y$pop[match(io$iso3c[fish_idx], pop_y$iso3c)] *2
+  idx = order(fish_fabio_hr_m_cap, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (male) labor hr per capita:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_m_cap = fish_fabio_hr_m_cap[idx]))
+
+  fish_fabio_hr_f_cap = fish_fabio_hr_f / pop_y$pop[match(io$iso3c[fish_idx], pop_y$iso3c)] *2 # Assume 1:1 gender ratio
+  idx = order(fish_fabio_hr_f_cap, decreasing = TRUE)[1:20]
+  cat("Top FABIO sectors receiving fish (female) labor hr per capita:\n")
+  print(data.frame(iso3c = io$iso3c[fish_idx][idx], sector = io$item[fish_idx][idx], labor_f_cap = fish_fabio_hr_f_cap[idx]))
+
+
+  return(list(sat_en_FAB = FABIO_en,
+              sat_hr_m_FAB = FABIO_hr_m,
               sat_hr_f_FAB = FABIO_hr_f))
+}
+
+# Claude made this one below to fix the non-food footprint being too large. 
+# But I won't use it since I made the fix myself.
+
+# Inverse of convert_mass_vecs: maps an EXIO mass vector/matrix back to FABIO classification.
+# Each EXIO sector's mass is distributed to FABIO products proportionally to their
+# contribution recorded in FABIO_x_in_EXIO (built by convert_mass_vecs).
+# Total mass is preserved for EXIO sectors that have FABIO mappings (food sectors).
+#
+# Input:  exio_vec_mass — vector (37400 or 9800) or matrix with 37400 or 9800 columns
+# Output: FABIO mass vector (23001) or matrix with 23001 columns
+convert_mass_vecs_inv <- function(exio_vec_mass, FABIO_x_in_EXIO_mat = FABIO_x_in_EXIO) {
+  n_exio_full = nrreg * length(EXIO_sect)       # 37400 = 187 countries × 200 sectors
+  n_exio_agg  = n_reg_EXIO * length(EXIO_sect)  # 9800  =  49 regions  × 200 sectors
+
+  # Coerce vectors to 1-row matrix so the rest of the logic is uniform
+  is_vec = is.null(dim(exio_vec_mass))
+  if (is_vec) exio_vec_mass = matrix(exio_vec_mass, nrow = 1)
+
+  n_cols = ncol(exio_vec_mass)
+  if (n_cols == n_exio_agg) {
+    exio_vec_mass = reorder_countries_to_FABIO(exio_vec_mass)  # K×9800 → K×37400
+  } else if (n_cols != n_exio_full) {
+    stop(paste("Input column count must be", n_exio_full, "(37400) or", n_exio_agg, "(9800)."))
+  }
+
+  # Column-normalize FABIO_x_in_EXIO: share of each FABIO product in each EXIO sector
+  col_inv = 1 / colSums(FABIO_x_in_EXIO_mat)
+  col_inv[!is.finite(col_inv)] = 0
+  col_shares = FABIO_x_in_EXIO_mat %*% Diagonal(x = col_inv)  # 23001×37400, columns sum to 1
+
+  result = exio_vec_mass %*% t(col_shares)  # K×37400 %*% 37400×23001 = K×23001
+
+  if (is_vec) as.vector(result) else result
 }
 
 
@@ -217,28 +288,42 @@ plot_countries <- function(df, ylabel, maintitle) {
   }
   
   # Get first work before "_" of part_negative to determine the type of footprint for labeling
-  neg_type = strsplit(part_negative, "_")[[1]][1]
+  neg_type = strsplit(as.character(part_negative), "_")[[1]][1]
   pos_type = ifelse(neg_type == "import", "export", "import")
   
-  g = ggplot(df %>% 
-               filter(footprint_type != part_negative),
-             aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type)) +
-    # When bars are stacked, make sure that "domestic_per_capita" is at the bottom and what's on top is determined by pos_type.
+  has_row <- "is_row" %in% colnames(df)
+  pos_df  <- df %>% filter(footprint_type != part_negative)
+  neg_df  <- df %>% filter(footprint_type == part_negative)
+
+  if (has_row) {
+    g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type, alpha=is_row))
+  } else {
+    g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type))
+  }
+
+  g <- g +
     geom_bar(stat="identity", position="stack") +
-    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") + 
+    labs(x="Country (ISO3)", y=ylabel, fill="Footprint type") +
     theme_minimal() +
-    theme(legend.position = "top") +
-    # Tilt x-axis labels
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    # Add import_per_capita values as negative y axis bars by footprint_type and type
-    geom_bar(data = df %>% 
-               filter(footprint_type == part_negative),
-             aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type), 
-             stat="identity", position="stack") + 
-    scale_fill_manual(values=c_scheme) #+
-    # labs(fill="Footprint type", title=paste0(maintitle,"\n(positive: domestic+", pos_type, ", negative: ", neg_type, ")")) 
-    labs(fill="Footprint type")
-  
+    theme(legend.position = "top",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+
+  if (has_row) {
+    g <- g + geom_bar(data=neg_df,
+                      aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type, alpha=is_row),
+                      stat="identity", position="stack")
+  } else {
+    g <- g + geom_bar(data=neg_df,
+                      aes(x=country, y=-per_capita_value/scale_factor, fill=footprint_type),
+                      stat="identity", position="stack")
+  }
+
+  g <- g + scale_fill_manual(values=c_scheme)
+
+  if (has_row) {
+    g <- g + scale_alpha_manual(values=c("TRUE"=0.3, "FALSE"=0.9), guide="none")
+  }
+
   print(g)
   return(g)
 }
