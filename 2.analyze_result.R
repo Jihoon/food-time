@@ -628,11 +628,15 @@ make_spotlight_data = function(iso) {
     )
 }
 
+mat_kcal_country = agg_country_footprint(FABIO_y_hh_cal)  # 187×187, kcal
+mat_pro_country  = agg_country_footprint(FABIO_y_hh_pro)  # 187×187, g protein
+
 make_continent_data = function(iso) {
   pop = subset(countrypops, year == yr & country_code_3 == iso)$population
-  bind_rows(lapply(list("food sector" = l_food_country, "non-food sector" = l_nonfood_country),
+
+  df_el = bind_rows(lapply(list("food sector" = l_food_country, "non-food sector" = l_nonfood_country),
                    function(l_country) {
-    bind_rows(lapply(names(l_country), 
+    bind_rows(lapply(names(l_country),
       function(metric) {
         mat  = l_country[[metric]]
         cty  = colnames(mat)
@@ -651,12 +655,36 @@ make_continent_data = function(iso) {
                     flow = "import")
         ) %>% mutate(metric = metric)
       }
-      )
-    )
+    ))
   }), .id = "sector") %>%
     mutate(metric = factor(metric,
       levels = c("hr_f", "hr_m", "en"),
       labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)", "Energy\n(GJ/cap/yr)")))
+
+  df_nut = bind_rows(lapply(
+    list(kcal = mat_kcal_country, protein = mat_pro_country),
+    function(mat) {
+      cty  = colnames(mat)
+      cont = regions$continent[match(cty, regions$iso3c)]
+      not_focal = cty != iso
+
+      exp_by_cont = tapply(mat[iso, not_focal],  cont[not_focal], sum, na.rm = TRUE)
+      imp_by_cont = tapply(mat[not_focal, iso],  cont[not_focal], sum, na.rm = TRUE)
+
+      denom = pop * 365  # → kcal/cap/day or g/cap/day
+
+      bind_rows(
+        data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom, flow = "export"),
+        data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom, flow = "import")
+      )
+    }
+  ), .id = "metric") %>%
+    mutate(sector = "—",
+           metric = factor(metric,
+             levels = c("kcal", "protein"),
+             labels = c("Food supply\n(kcal/cap/day)", "Protein supply\n(g/cap/day)")))
+
+  bind_rows(df_el, df_nut)
 }
 
 plot_spotlight = function(iso) {
@@ -674,29 +702,49 @@ plot_spotlight = function(iso) {
 
 plot_continent = function(iso) {
   df = make_continent_data(iso)
-  ggplot(df, aes(x = flow, y = value, fill = continent)) +
+
+  base_theme = list(
+    scale_fill_brewer(palette = "Set2"),
+    labs(x = NULL, y = NULL, fill = "Continent"),
+    theme_minimal(),
+    theme(strip.text = element_text(size = 10))
+  )
+
+  p_el = df %>%
+    filter(sector != "—") %>%
+    ggplot(aes(x = flow, y = value, fill = continent)) +
     geom_col(width = 0.6, position = "stack") +
     facet_grid(metric ~ sector, scales = "free_y") +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = NULL, y = NULL, fill = "Continent",
-         title = paste0(iso, " food trade flows by continent (", year, ")")) +
-    theme_minimal() +
-    theme(legend.position = "right", strip.text = element_text(size = 10))
+    base_theme
+
+  p_nut = df %>%
+    filter(sector == "—") %>%
+    ggplot(aes(x = flow, y = value, fill = continent)) +
+    geom_col(width = 0.6, position = "stack") +
+    facet_wrap(~ metric, nrow = 1, scales = "free_y") +
+    base_theme
+
+  (p_el / p_nut) +
+    plot_layout(heights = c(3, 2), guides = "collect") &
+    theme(legend.position = "right") &
+    plot_annotation(title = paste0(iso, " food trade flows by continent (", year, ")"))
 }
 
-for (iso in c("USA", "CHN", "IND")) {
+for (iso in c("BRA", "ZAF", "DNK", "KOR")) {
+# for (iso in c("USA", "CHN", "IND", "AUT")) {
   ggsave(paste0("results/", tolower(iso), "_spotlight.pdf"),  plot_spotlight(iso), width = 14, height = 5)
-  ggsave(paste0("results/", tolower(iso), "_continent.pdf"),  plot_continent(iso), width = 10, height = 10)
+  ggsave(paste0("results/", tolower(iso), "_continent.pdf"),  plot_continent(iso), width = 12, height = 14)
 }
 
 # Combined three-country comparison: absolute footprints + domestic/import shares
-make_select_country_data = function(isos = c("USA", "AUT", "CHN", "IND")) {
+make_select_country_data = function(isos = c("USA", "AUT", "CHN", "IND"), include_export = FALSE) {
+  flows = if (include_export) c("domestic", "import", "export") else c("domestic", "import")
   bind_rows(lapply(isos, function(iso) {
     make_spotlight_data(iso) %>% mutate(country = iso)
   })) %>%
-    filter(flow %in% c("domestic", "import")) %>%
+    filter(flow %in% flows) %>%
     mutate(country = factor(country, levels = isos),
-           flow    = factor(flow, levels = c("domestic", "import")))
+           flow    = factor(flow, levels = flows))
 }
 
 plot_select_country = function(isos = c("USA", "AUT", "CHN", "IND")) {
@@ -764,7 +812,7 @@ plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
                                     bar_width  = 0.6,
                                     show_strip = TRUE) {
   mode = match.arg(mode)
-  df = make_select_country_data(isos)
+  df = make_select_country_data(isos, include_export = TRUE)
 
   fill_vals = c(
     "domestic | food sector"     = "#4e9af1",
@@ -772,7 +820,10 @@ plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
     "domestic | —"               = "#2ca02c",
     "import | food sector"       = "#91c4f8",
     "import | non-food sector"   = "#f8ba91",
-    "import | —"                 = "#9467bd"
+    "import | —"                 = "#9467bd",
+    "export | food sector"       = "#c0392b",
+    "export | non-food sector"   = "#f1948a",
+    "export | —"                 = "#922b21"
   )
   fill_labels = c(
     "domestic | food sector"     = "Domestic: food",
@@ -780,13 +831,17 @@ plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
     "domestic | —"               = "Domestic",
     "import | food sector"       = "Import: food",
     "import | non-food sector"   = "Import: non-food",
-    "import | —"                 = "Import"
+    "import | —"                 = "Import",
+    "export | food sector"       = "Export: food",
+    "export | non-food sector"   = "Export: non-food",
+    "export | —"                 = "Export"
   )
 
   df_abs = df %>%
     mutate(fill_grp = factor(paste(flow, sector, sep = " | "), levels = names(fill_vals))) %>%
     group_by(country, fill_grp, metric) %>%
-    summarise(value = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+    summarise(value = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+    mutate(value = ifelse(grepl("^export", as.character(fill_grp)), -value, value))
 
   if (mode == "labor_energy") {
     primary_pat   = "labor";       secondary_pat = "Energy"
