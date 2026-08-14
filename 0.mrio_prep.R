@@ -149,6 +149,7 @@ lab_male_nonfood = matrix(lab_male*idx_nonfood, nrow=1)
 lab_female_nonfood = matrix(lab_female*idx_nonfood, nrow=1)
 
 
+
 #### 4. Read Fajzel data ####
 
 path_GHD = "H:/MyDocuments/Data/GlobalHumanDay/"
@@ -171,7 +172,7 @@ df_ghd_gender = read_csv(paste0(path_GHD, "outputData/gender_split/TUS_only_M24_
     subcategory == "processing" ~ "processing_non.econ",
     subcategory == "preparation" ~ "preparation_non.econ",
     subcategory == "growth_collection" ~ "growth_collection_non.econ"
-  )) 
+  ))
 
 # Non-economic food time by gender
 df_ghd_gender = df_ghd_gender %>% rename(footprint_type = subcategory) %>%
@@ -189,7 +190,16 @@ df_restaurant = read_csv(paste0(path_GHD, "outputData/restaurants_accommodations
   mutate(footprint_type = "preparation_econ") %>%
   select(country, type, footprint_type, per_capita_value)
 
-# 4.3. Combine the two dataframes ####
-df_ghd_combined = bind_rows(df_ghd_gender, df_restaurant)
+# 4.2b. Read water and firewood collection time (no gender split; apply the same value to both genders) ####
+df_water_energy = read_csv("data/water_firewood.csv") %>%
+  rename(water_non.econ = water_supply, energy_non.econ = forestry) %>%
+  pivot_longer(cols = c(water_non.econ, energy_non.econ), names_to = "footprint_type", values_to = "per_capita_value") %>%
+  mutate(hr_m = per_capita_value, hr_f = per_capita_value) %>%
+  select(country, footprint_type, hr_m, hr_f) %>%
+  pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_capita_value") %>%
+  drop_na()
+
+# 4.3. Combine the dataframes ####
+df_ghd_combined = bind_rows(df_ghd_gender, df_restaurant, df_water_energy)
 
 cty_ghd = unique((df_ghd_gender %>% filter(footprint_type=="preparation_non.econ"))$country)
