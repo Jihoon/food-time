@@ -268,7 +268,7 @@ plot_countries <- function(df, ylabel, maintitle) {
   # print(name_dom, name_exp, name_imp)
   print(footprint_types)
 
-  c_scheme = setNames(c("#1f77b4", "#2ca02c", "#ff7f0e"), c(name_dom, name_exp, name_imp))
+  c_scheme = setNames(c("#08519c", "#3182bd", "#6baed6"), c(name_dom, name_exp, name_imp))
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp
@@ -276,12 +276,18 @@ plot_countries <- function(df, ylabel, maintitle) {
   } else if (df$type[1] %in% c("hr_m", "hr_f")) { # Labor footprint
     part_negative = "import_per_capita"
     scale_factor = 1
+    # Econ (paid) categories stay in the cool blue family (set above); non-econ
+    # (household/unpaid) categories get their own warm yellow-orange-red family,
+    # so the two groups are distinguishable by hue while individual items are
+    # still distinguishable by shade within each family.
     c_scheme = c(c_scheme,
-                 "preparation_econ" = "#8610ca",
-                 "preparation_non.econ" = "#ffa6a6",
-                 "processing_non.econ" = "#fc4a4a",
-                 "growth_collection_non.econ" = "#ce0303")
-    print("Plotting labor footprint with negative import values") 
+                 "preparation_econ" = "#bdd7e7",
+                 "preparation_non.econ" = "#fed976",
+                 "processing_non.econ" = "#feb24c",
+                 "growth_collection_non.econ" = "#fd8d3c",
+                 "energy_non.econ" = "#f03b20",
+                 "water_non.econ" = "#bd0026")
+    print("Plotting labor footprint with negative import values")
   } else {  # Energy footprint or other types of footprints, default to negative import values
     part_negative = name_exp
     scale_factor = 1e3
