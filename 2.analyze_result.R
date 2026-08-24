@@ -166,6 +166,7 @@ summary_food_df_long_with_ghd = bind_rows(summary_food_df_long, df_ghd_combined)
          country = factor(country, levels = sum_ord),
          footprint_type = factor(footprint_type,
                                  levels = c("preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
+                                            "energy_non.econ", "water_non.econ",
                                             "preparation_econ",
                                             "export_per_capita", "import_per_capita", "domestic_per_capita")))
 
@@ -254,13 +255,137 @@ pro_partial = country_summary(agg_country_footprint(FABIO_y_hh_pro)) %>%
 pro_max   <- max(pro_partial$pro_per_cap_day, na.rm = TRUE)
 pro_scale <- 3.0 / pro_max
 
-p1 = plot_countries(a %>% filter(type %in% c("hr_f")), "Female time footprint per capita (hr/day)", "") +
+fao_und_raw = read.csv("data/FAOSTAT_undernourishment_3yravg_2016-2022.csv", check.names = FALSE)
+fao_und_lookup = fao_und_raw %>%
+  filter(Year == "2018-2020") %>%
+  # FAO censors low prevalence as "<2.5" instead of a number; treat that as 2.5.
+  mutate(Value = as.numeric(gsub("<", "", Value)),
+         `Area Code (M49)` = as.numeric(gsub("'", "", `Area Code (M49)`)),
+         iso3c = countrycode::countrycode(`Area Code (M49)`,
+                                          origin = "un", destination = "iso3c",
+                                          warn = FALSE)) %>%
+  filter(!is.na(iso3c)) %>%
+  select(country = iso3c, undernourishment_pct = Value)
+
+und_partial = tibble(country = as.character(partial_cty)) %>%
+  left_join(fao_und_lookup, by = "country") %>%
+  mutate(country = factor(country, levels = as.character(partial_ord))) %>%
+  select(country, undernourishment_pct)
+und_max   <- max(und_partial$undernourishment_pct, na.rm = TRUE)
+und_scale <- 3.0 / und_max
+
+p1 = plot_countries(a %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
   geom_point(data = pro_partial, aes(x = country, y = pro_per_cap_day * pro_scale),
              color = "black", size = 2.5, inherit.aes = FALSE) +
-  scale_y_continuous(limits = c(-1, 3.5),
+  scale_y_continuous(limits = c(-0.2, 3.5),
                      sec.axis = sec_axis(~ . / pro_scale, name = "g protein/cap/day"))
-p2 = plot_countries(a %>% filter(type %in% c("hr_m")), "Male time footprint per capita (hr/day)", "") 
+p2 = plot_countries(a %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
+  geom_point(data = und_partial, aes(x = country, y = undernourishment_pct * und_scale),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(-0.2, 3.5),
+                     sec.axis = sec_axis(~ . / und_scale, name = "Prevalence of undernourishment (%)"))
 p3 = plot_countries(a %>% filter(type %in% c("en")), "Energy footprint per capita (GJ/yr)", "")
+
+# Protein supply vs. total food provisioning time, one point per country per gender
+# (excludes export_per_capita, since that time provisions other countries' consumption)
+time_partial = a %>%
+  filter(type %in% c("hr_m", "hr_f"),
+         !footprint_type %in% c("export_per_capita", "import_per_capita")) %>%
+  group_by(country, type, is_row) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+df_time_protein = time_partial %>%
+  left_join(pro_partial, by = "country") %>%
+  drop_na(pro_per_cap_day)
+
+label_partial = df_time_protein %>%
+  group_by(country) %>%
+  slice_max(hr_per_cap_day, n = 1, with_ties = FALSE) %>%
+  mutate(fontface = ifelse(is_row, "plain", "bold"))
+
+p4 = ggplot(df_time_protein, aes(x = pro_per_cap_day, y = hr_per_cap_day)) +
+  geom_line(aes(group = country, linetype = is_row, linewidth = is_row), color = "grey60") +
+  geom_point(aes(color = type), size = 2.5) +
+  ggrepel::geom_text_repel(
+    data = label_partial,
+    aes(label = country, fontface = I(fontface)), size = 3, max.overlaps = 20, show.legend = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_linetype_manual(values = c("FALSE" = "solid", "TRUE" = "dotted"),
+                         labels = c("FALSE" = "Directly modeled (EXIO)", "TRUE" = "Aggregated 'Rest of World' region"),
+                         name = "Data coverage") +
+  scale_linewidth_manual(values = c("FALSE" = 1.1, "TRUE" = 0.4), guide = "none") +
+  # scale_x_continuous(limits = c(0, NA)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Protein supply (g/cap/day)", y = "Food provisioning time (hr/cap/day)",
+       color = "Gender") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4)
+
+# Same protein-vs-time scatter, restricted to non-RoW countries only
+df_time_protein_nonrow = df_time_protein %>% filter(!is_row)
+
+label_partial_nonrow = df_time_protein_nonrow %>%
+  group_by(country) %>%
+  slice_max(hr_per_cap_day, n = 1, with_ties = FALSE)
+
+p4_nonrow = ggplot(df_time_protein_nonrow, aes(x = pro_per_cap_day, y = hr_per_cap_day)) +
+  geom_line(aes(group = country), color = "grey60", linewidth = 1.1) +
+  geom_point(aes(color = type), size = 2.5) +
+  ggrepel::geom_text_repel(
+    data = label_partial_nonrow,
+    aes(label = country), size = 3, fontface = "bold", max.overlaps = 20, show.legend = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  # scale_x_continuous(limits = c(0, NA)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Protein supply (g/cap/day)", y = "Food provisioning time (hr/cap/day)",
+       color = "Gender") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_nonrow)
+
+# Domestic-only variant: domestic + household time (same as above) vs. FABIO's
+# domestic-only protein supply (instead of FAO's domestic+import national total)
+pro_domestic_partial = country_summary(agg_country_footprint(FABIO_y_hh_pro)) %>%
+  mutate(across(ends_with("per_capita"), ~ .x / 1e6 / 365)) %>%
+  filter(as.character(country) %in% as.character(partial_cty)) %>%
+  mutate(country = factor(as.character(country), levels = as.character(partial_ord))) %>%
+  select(country, pro_per_cap_day_domestic = domestic_per_capita)
+
+df_time_protein_domestic = time_partial %>%
+  left_join(pro_domestic_partial, by = "country") %>%
+  drop_na(pro_per_cap_day_domestic)
+
+label_partial_domestic = df_time_protein_domestic %>%
+  group_by(country) %>%
+  slice_max(hr_per_cap_day, n = 1, with_ties = FALSE) %>%
+  mutate(fontface = ifelse(is_row, "plain", "bold"))
+
+p4_domestic = ggplot(df_time_protein_domestic, aes(x = pro_per_cap_day_domestic, y = hr_per_cap_day)) +
+  geom_line(aes(group = country, linetype = is_row, linewidth = is_row), color = "grey60") +
+  geom_point(aes(color = type), size = 2.5) +
+  ggrepel::geom_text_repel(
+    data = label_partial_domestic,
+    aes(label = country, fontface = I(fontface)), size = 3, max.overlaps = 20, show.legend = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_linetype_manual(values = c("FALSE" = "solid", "TRUE" = "dotted"),
+                         labels = c("FALSE" = "Directly modeled (EXIO)", "TRUE" = "Aggregated 'Rest of World' region"),
+                         name = "Data coverage") +
+  scale_linewidth_manual(values = c("FALSE" = 1.1, "TRUE" = 0.4), guide = "none") +
+  scale_x_continuous(limits = c(0, NA)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Domestic protein supply (g/cap/day, FABIO)",
+       y = "Domestic + household food provisioning time (hr/cap/day)",
+       color = "Gender") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_domestic)
 
 p_combined_partial  = p1 / p2 + plot_layout(guides = "collect") & theme(legend.position = "top",
                                                                         axis.text.x = element_blank(),
@@ -277,8 +402,56 @@ p_combined_partial[[2]] <- p_combined_partial[[2]] +
 print(p_combined_partial)
 
 # Save it to a PDF
-ggsave(paste0("results/footprint_all_countries.pdf"), p_combined, width = 18, height = 12)
-ggsave(paste0("results/footprint_partial_countries.pdf"), p_combined_partial, width = 18, height = 12)
+ggsave("results/footprint_all_countries.pdf", p_combined, width = 18, height = 12)
+ggsave("results/footprint_partial_countries.pdf", p_combined_partial, width = 18, height = 12)
+ggsave("results/protein_vs_time.pdf", p4, width = 16, height = 6)
+ggsave("results/protein_vs_time_nonrow.pdf", p4_nonrow, width = 16, height = 6)
+ggsave("results/protein_vs_time_domestic.pdf", p4_domestic, width = 16, height = 6)
+
+# Same dual-axis figure, restricted to non-RoW countries only
+nonrow_ord = partial_ord[!as.character(partial_ord) %in% row_countries]
+
+a_nonrow = a %>% filter(!is_row) %>%
+  mutate(country = factor(as.character(country), levels = as.character(nonrow_ord)))
+
+pro_partial_nonrow = pro_partial %>%
+  filter(as.character(country) %in% as.character(nonrow_ord)) %>%
+  mutate(country = factor(as.character(country), levels = as.character(nonrow_ord)))
+pro_max_nonrow   <- max(pro_partial_nonrow$pro_per_cap_day, na.rm = TRUE)
+pro_scale_nonrow <- 3.0 / pro_max_nonrow
+
+und_partial_nonrow = und_partial %>%
+  filter(as.character(country) %in% as.character(nonrow_ord)) %>%
+  mutate(country = factor(as.character(country), levels = as.character(nonrow_ord)))
+und_max_nonrow   <- max(und_partial_nonrow$undernourishment_pct, na.rm = TRUE)
+und_scale_nonrow <- 3.0 / und_max_nonrow
+
+p1_nonrow = plot_countries(a_nonrow %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
+  geom_point(data = pro_partial_nonrow, aes(x = country, y = pro_per_cap_day * pro_scale_nonrow),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(-0.2, 3.5),
+                     sec.axis = sec_axis(~ . / pro_scale_nonrow, name = "g protein/cap/day"))
+p2_nonrow = plot_countries(a_nonrow %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
+  geom_point(data = und_partial_nonrow, aes(x = country, y = undernourishment_pct * und_scale_nonrow),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(-0.2, 3.5),
+                     sec.axis = sec_axis(~ . / und_scale_nonrow, name = "Prevalence of undernourishment (%)"))
+
+p_combined_partial_nonrow  = p1_nonrow / p2_nonrow + plot_layout(guides = "collect") & theme(legend.position = "top",
+                                                                        axis.text.x = element_blank(),
+                                                                        axis.ticks.x = element_blank(),
+                                                                        text              = element_text(size = 15),
+                                                                        axis.text.y       = element_text(size = 22),
+                                                                        axis.title        = element_text(size = 15),
+                                                                        legend.text       = element_text(size = 22),
+                                                                        legend.title      = element_text(size = 15)
+)
+p_combined_partial_nonrow[[2]] <- p_combined_partial_nonrow[[2]] +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 22),
+        axis.ticks.x = element_line())
+print(p_combined_partial_nonrow)
+
+ggsave("results/", p_combined_partial_nonrow, width = 18, height = 12)
 
 # Non-food sector: combined female + male + energy, ordered by non-food female time
 nonfood_ord = (summary_nonfood_df_long %>%
@@ -389,6 +562,94 @@ ggsave("results/kcal_supply.pdf",    p_kcal,    width = 18, height = 6)
 ggsave("results/protein_supply.pdf", p_protein, width = 18, height = 6)
 
 
+# Domestic vs. import conversion factors: protein per hour and protein per unit energy,
+# using total (food-sector + non-food-sector) economic hours/energy — no household time.
+make_protein_conversion_plot = function(countries, country_order = countries, show_protein_dots = FALSE) {
+  hr_conv_total = bind_rows(summary_food_df_long, summary_nonfood_df_long) %>%
+    filter(type %in% c("hr_m", "hr_f"), footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+           country %in% countries) %>%
+    mutate(country = as.character(country)) %>%
+    group_by(country, footprint_type) %>%
+    summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+  en_conv_total = bind_rows(summary_food_df_long, summary_nonfood_df_long) %>%
+    filter(type == "en", footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+           country %in% countries) %>%
+    mutate(country = as.character(country)) %>%
+    group_by(country, footprint_type) %>%
+    summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
+
+  pro_conv_total = summary_pro_df_long %>%
+    filter(footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+           country %in% countries) %>%
+    mutate(country = as.character(country)) %>%
+    select(country, footprint_type, g_protein_per_cap_day = per_capita_value)
+
+  df_conv = hr_conv_total %>%
+    left_join(en_conv_total, by = c("country", "footprint_type")) %>%
+    left_join(pro_conv_total, by = c("country", "footprint_type")) %>%
+    drop_na() %>%
+    mutate(source = ifelse(footprint_type == "domestic_per_capita", "Domestic", "Import"),
+           time_conv   = g_protein_per_cap_day / hr_per_cap_day,   # g protein / hr
+           energy_conv = g_protein_per_cap_day / gj_per_cap_day,   # g protein / GJ
+           is_row = country %in% row_countries)
+
+  df_conv_long = df_conv %>%
+    select(country, source, is_row, time_conv, energy_conv) %>%
+    pivot_longer(cols = c(time_conv, energy_conv), names_to = "factor_type", values_to = "value") %>%
+    mutate(country = factor(country, levels = as.character(country_order)),
+           source = factor(source, levels = c("Domestic", "Import")))
+
+  dot_df = df_conv %>%
+    mutate(country = factor(country, levels = as.character(country_order)),
+           source = factor(source, levels = c("Domestic", "Import")))
+  pro_max = max(dot_df$g_protein_per_cap_day, na.rm = TRUE)
+
+  p_conv_time = ggplot(df_conv_long %>% filter(factor_type == "time_conv"),
+                       aes(x = country, y = value, fill = source, alpha = is_row)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = c("Domestic" = "#1f77b4", "Import" = "#ff7f0e")) +
+    scale_alpha_manual(values = c("TRUE" = 0.3, "FALSE" = 0.9), guide = "none") +
+    labs(x = "Country (ISO3)", y = "g protein / hr", fill = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+  p_conv_energy = ggplot(df_conv_long %>% filter(factor_type == "energy_conv"),
+                         aes(x = country, y = value, fill = source, alpha = is_row)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = c("Domestic" = "#1f77b4", "Import" = "#ff7f0e")) +
+    scale_alpha_manual(values = c("TRUE" = 0.3, "FALSE" = 0.9), guide = "none") +
+    labs(x = "Country (ISO3)", y = "g protein / GJ", fill = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1),
+          axis.ticks.x = element_line())
+
+  if (show_protein_dots) {
+    time_max = max((df_conv_long %>% filter(factor_type == "time_conv"))$value, na.rm = TRUE)
+    pro_scale_time = time_max / pro_max
+    p_conv_time = p_conv_time +
+      geom_point(data = dot_df, aes(x = country, y = g_protein_per_cap_day * pro_scale_time, group = source),
+                 position = position_dodge(width = 0.9), color = "black", size = 2, inherit.aes = FALSE) +
+      scale_y_continuous(sec.axis = sec_axis(~ . / pro_scale_time, name = "g protein/cap/day"))
+
+    energy_max = max((df_conv_long %>% filter(factor_type == "energy_conv"))$value, na.rm = TRUE)
+    pro_scale_energy = energy_max / pro_max
+    p_conv_energy = p_conv_energy +
+      geom_point(data = dot_df, aes(x = country, y = g_protein_per_cap_day * pro_scale_energy, group = source),
+                 position = position_dodge(width = 0.9), color = "black", size = 2, inherit.aes = FALSE) +
+      scale_y_continuous(sec.axis = sec_axis(~ . / pro_scale_energy, name = "g protein/cap/day"))
+  }
+
+  p_conv_time / p_conv_energy + plot_layout(guides = "collect") &
+    theme(legend.position = "top")
+}
+
+# All countries shown in the dual-axis figure (footprint_partial_countries.pdf)
+p_conv_combined = make_protein_conversion_plot(partial_cty, partial_ord)
+print(p_conv_combined)
+ggsave("results/protein_conversion_domestic_vs_import.pdf", p_conv_combined, width = 18, height = 10)
+
+
 # Derive time conversion factors
 # For each country, divide the total food-related time footprint (hr/cap/day) by the total kcal supply per capita (kcal/cap/day) to get hr/kcal. Do this separately for domestic, export, and import footprints.
 summary_time_kcal = summary_food_df_long_with_ghd %>% 
@@ -492,30 +753,30 @@ summary_time_protein = summary_food_df_long_with_ghd %>%
   left_join(summary_pro_df_long %>% select(country, cat, footprint_type, per_capita_value),
             by = c("country", "cat"), suffix = c("_time", "_protein")) %>%
   ungroup() %>%
-  mutate(hr_per_100g_protein = per_capita_value_time / per_capita_value_protein * 100)
+  mutate(hr_per_50g_protein = per_capita_value_time / per_capita_value_protein * 50)
 
 v_ord_protein_econlabor = (summary_time_protein %>%
   filter(type == "hr_f", cat == "domestic", grepl("per_capita", footprint_type_time)) %>%
-  arrange(-hr_per_100g_protein))$country
+  arrange(-hr_per_50g_protein))$country
 
 df_convfac_protein_econlabor    = summary_time_protein %>% filter(grepl("per_capita", footprint_type_time))
 df_convfac_protein_nonecon = summary_time_protein %>% filter(country %in% cty_ghd)
 
 v_ord_protein_alltime = (df_convfac_protein_nonecon %>% 
                filter(type %in% c("hr_f"), cat=="domestic") %>% 
-               group_by(country) %>% summarise(d = sum(hr_per_100g_protein, na.rm=TRUE)) %>%
+               group_by(country) %>% summarise(d = sum(hr_per_50g_protein, na.rm=TRUE)) %>%
                arrange(-d))$country
 
 p_conversion_protein_econlabor = ggplot(
   df_convfac_protein_econlabor %>%
     filter(footprint_type_time == "domestic_per_capita") %>%
-    select(country, type, footprint_type_time, hr_per_100g_protein) %>%
+    select(country, type, footprint_type_time, hr_per_50g_protein) %>%
     mutate(country = factor(country, levels = v_ord_protein_econlabor)),
-  aes(x = country, y = hr_per_100g_protein, fill = footprint_type_time)) +
+  aes(x = country, y = hr_per_50g_protein, fill = footprint_type_time)) +
   geom_bar(stat = "identity", position = "stack") +
   facet_wrap(~type, ncol = 1, scales = "fixed") +
-  labs(x = "Country (ISO3)", y = "Time per 100 g protein (hr/100g)", fill = "Footprint type",
-       title = paste0("Time per 100 g protein by country (", year, ") - Economic time only")) +
+  labs(x = "Country (ISO3)", y = "Time per 50 g protein (hr/50g)", fill = "Footprint type",
+       title = paste0("Time per 50 g protein by country (", year, ") - Economic time only")) +
   theme_minimal() +
   theme(legend.position = "top") +
   scale_fill_manual(values = c("domestic_per_capita" = "#1f77b4",
@@ -525,13 +786,13 @@ p_conversion_protein_econlabor = ggplot(
 
 p_conversion_protein_nonecon = ggplot(
   df_convfac_protein_nonecon %>%
-    select(country, type, footprint_type_time, hr_per_100g_protein) %>%
+    select(country, type, footprint_type_time, hr_per_50g_protein) %>%
     mutate(country = factor(country, levels = v_ord_alltime)),
-  aes(x = country, y = hr_per_100g_protein, fill = footprint_type_time)) +
+  aes(x = country, y = hr_per_50g_protein, fill = footprint_type_time)) +
   geom_bar(stat = "identity", position = "stack") +
   facet_wrap(~type, ncol = 1, scales = "fixed") +
-  labs(x = "Country (ISO3)", y = "Time per 100 g protein (hr/100g)", fill = "Footprint type",
-       title = paste0("Time per 100 g protein by country (", year, ")")) +
+  labs(x = "Country (ISO3)", y = "Time per 50 g protein (hr/50g)", fill = "Footprint type",
+       title = paste0("Time per 50 g protein by country (", year, ")")) +
   theme_minimal() +
   theme(legend.position = "top") +
   scale_fill_manual(values = c("domestic_per_capita"        = "#1f77b4",
@@ -544,6 +805,75 @@ p_conversion_protein_nonecon = ggplot(
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave("results/conversion_protein_econlabor.pdf",    p_conversion_protein_econlabor,    width = 18, height = 8)
 ggsave("results/conversion_protein_nonecon.pdf", p_conversion_protein_nonecon, width = 18, height = 8)
+
+
+#### Paid vs. unpaid food provisioning time by country and gender (scatter) ####
+
+# "Paid" = economic (EXIOBASE-derived) labor embodied in food provisioning: food-sector labor
+# (excludes non-food-sector/indirect labor — packaging, transport, etc.), plus restaurant/
+# food-service time (preparation_econ), split into domestic (domestic_per_capita, already net
+# of exported labor: = territorial production consumed at home, i.e. territorial production
+# minus what's exported and excluded here) and import. "Unpaid" = household non-economic time
+# from GHD: food preparation/processing/growth-collection plus household water and firewood/
+# energy collection (see commit 96d7e3c).
+
+paid_domestic = summary_food_df_long_with_ghd %>%
+  filter(type %in% c("hr_m", "hr_f"),
+         footprint_type %in% c("domestic_per_capita", "preparation_econ")) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(paid_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(source = "Domestic")
+
+paid_import = summary_food_df_long_with_ghd %>%
+  filter(type %in% c("hr_m", "hr_f"), footprint_type == "import_per_capita") %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(paid_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(source = "Import")
+
+unpaid = summary_food_df_long_with_ghd %>%
+  filter(type %in% c("hr_m", "hr_f"),
+         footprint_type %in% c("preparation_non.econ", "processing_non.econ",
+                                "growth_collection_non.econ", "energy_non.econ", "water_non.econ")) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(unpaid_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+# One row per country x gender x source (domestic/import). Restricted to non-RoW countries
+# (directly modeled EXIO regions only, not aggregated "Rest of" regions).
+df_paid_unpaid = bind_rows(paid_domestic, paid_import) %>%
+  left_join(unpaid, by = c("country", "type")) %>%
+  filter(country %in% cty_ghd, !country %in% row_countries) %>%
+  drop_na(unpaid_value) %>%
+  mutate(source = factor(source, levels = c("Domestic", "Import")),
+         type = factor(type, levels = c("hr_f", "hr_m"), labels = c("Female", "Male")))
+
+# R^2 of paid ~ unpaid, computed separately per facet (source x gender)
+r2_paid_unpaid = df_paid_unpaid %>%
+  group_by(source, type) %>%
+  summarise(r2 = summary(lm(paid_value ~ unpaid_value))$r.squared, .groups = "drop") %>%
+  mutate(label = sprintf("R² = %.2f", r2))
+
+p_paid_unpaid = ggplot(df_paid_unpaid, aes(x = unpaid_value, y = paid_value)) +
+  geom_point(color = "#1f77b4", size = 2.5) +
+  # Linear fit line: female facets only
+  geom_smooth(data = df_paid_unpaid %>% filter(type == "Female"),
+              method = "lm", se = FALSE, color = "black", linewidth = 0.7) +
+  ggrepel::geom_text_repel(aes(label = country), size = 3, max.overlaps = 20, show.legend = FALSE) +
+  # R^2 label: all facets
+  geom_text(data = r2_paid_unpaid, aes(x = Inf, y = Inf, label = label),
+             hjust = 1.1, vjust = 1.5, inherit.aes = FALSE, size = 3.5, color = "black") +
+  facet_grid(source ~ type) +
+  scale_x_continuous(limits = c(0, NA)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Unpaid (household) time (hr/cap/day)", y = "Paid (economic) time (hr/cap/day)",
+       title = paste0("Paid vs. unpaid food provisioning time by country and gender (", year, ") — non-RoW")) +
+  theme_minimal()
+dev.new(width = 12, height = 10)
+print(p_paid_unpaid)
+
+ggsave("results/paid_vs_unpaid_time.pdf", p_paid_unpaid, width = 12, height = 10)
 
 
 #### Protein g per hour: population-weighted inequality (Gini & Atkinson) ####
@@ -590,8 +920,8 @@ pop_data_ineq <- subset(countrypops, year == yr) %>%
 protein_g_per_hr_df <- summary_time_protein %>%
   filter(country %in% cty_ghd, cat == "domestic") %>%
   group_by(country, type) %>%
-  summarise(hr_per_100g_protein = sum(hr_per_100g_protein, na.rm = TRUE), .groups = "drop") %>%
-  mutate(protein_g_per_hr = 100 / hr_per_100g_protein) %>%
+  summarise(hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE), .groups = "drop") %>%
+  mutate(protein_g_per_hr = 50 / hr_per_50g_protein) %>%
   left_join(pop_data_ineq, by = "country") %>%
   mutate(weight = population / 2) %>%
   filter(!is.na(weight), is.finite(protein_g_per_hr), protein_g_per_hr > 0)
@@ -642,8 +972,7 @@ make_spotlight_data = function(iso) {
       ),
       metric = factor(type,
         levels = c("hr_f", "hr_m", "en", "kcal", "protein"),
-        labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)",
-                   "Energy\n(GJ/cap/yr)", "Food supply\n(kcal/cap/day)", "Protein supply\n(g/cap/day)"))
+        labels = c("Female labor", "Male labor", "Energy", "kcal", "Protein"))
     )
 }
 
@@ -668,17 +997,16 @@ make_continent_data = function(iso) {
         denom = if (metric == "en") pop / 1e3 else pop / 1e6 * 365
 
         bind_rows(
-          data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom,
-                    flow = "export"),
-          data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom,
-                    flow = "import")
+          data.frame(continent = "Domestic",          value = mat[iso, iso] / denom,              flow = "domestic"),
+          data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom, flow = "export"),
+          data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom, flow = "import")
         ) %>% mutate(metric = metric)
       }
     ))
   }), .id = "sector") %>%
     mutate(metric = factor(metric,
       levels = c("hr_f", "hr_m", "en"),
-      labels = c("Female labor\n(hr/cap/day)", "Male labor\n(hr/cap/day)", "Energy\n(GJ/cap/yr)")))
+      labels = c("Female labor", "Male labor", "Energy")))
 
   df_nut = bind_rows(lapply(
     list(kcal = mat_kcal_country, protein = mat_pro_country),
@@ -693,6 +1021,7 @@ make_continent_data = function(iso) {
       denom = pop * 365  # → kcal/cap/day or g/cap/day
 
       bind_rows(
+        data.frame(continent = "Domestic",          value = mat[iso, iso] / denom,              flow = "domestic"),
         data.frame(continent = names(exp_by_cont), value = as.numeric(exp_by_cont) / denom, flow = "export"),
         data.frame(continent = names(imp_by_cont), value = as.numeric(imp_by_cont) / denom, flow = "import")
       )
@@ -701,7 +1030,7 @@ make_continent_data = function(iso) {
     mutate(sector = "—",
            metric = factor(metric,
              levels = c("kcal", "protein"),
-             labels = c("Food supply\n(kcal/cap/day)", "Protein supply\n(g/cap/day)")))
+             labels = c("kcal", "Protein")))
 
   bind_rows(df_el, df_nut)
 }
@@ -722,9 +1051,15 @@ plot_spotlight = function(iso) {
 plot_continent = function(iso) {
   df = make_continent_data(iso)
 
+  cont_levels = sort(setdiff(unique(df$continent), "Domestic"))
+  fill_vals = c(
+    setNames(colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(cont_levels)), cont_levels),
+    "Domestic" = "grey65"
+  )
+
   base_theme = list(
-    scale_fill_brewer(palette = "Set2"),
-    labs(x = NULL, y = NULL, fill = "Continent"),
+    scale_fill_manual(values = fill_vals, name = "Continent"),
+    labs(x = NULL, y = NULL),
     theme_minimal(),
     theme(strip.text = element_text(size = 10))
   )
@@ -749,14 +1084,14 @@ plot_continent = function(iso) {
     plot_annotation(title = paste0(iso, " food trade flows by continent (", year, ")"))
 }
 
-for (iso in c("BRA", "ZAF", "DNK", "KOR")) {
-# for (iso in c("USA", "CHN", "IND", "AUT")) {
+# for (iso in c("BRA", "ZAF", "DNK", "KOR")) {
+for (iso in c("USA", "CHN", "IND", "AUT")) {
   ggsave(paste0("results/", tolower(iso), "_spotlight.pdf"),  plot_spotlight(iso), width = 14, height = 5)
   ggsave(paste0("results/", tolower(iso), "_continent.pdf"),  plot_continent(iso), width = 12, height = 14)
 }
 
 # Combined three-country comparison: absolute footprints + domestic/import shares
-make_select_country_data = function(isos = c("USA", "AUT", "CHN", "IND"), include_export = FALSE) {
+make_select_country_data = function(isos = c("USA", "AUT", "CHN", "IND", "BRA"), include_export = FALSE) {
   flows = if (include_export) c("domestic", "import", "export") else c("domestic", "import")
   bind_rows(lapply(isos, function(iso) {
     make_spotlight_data(iso) %>% mutate(country = iso)
@@ -766,7 +1101,7 @@ make_select_country_data = function(isos = c("USA", "AUT", "CHN", "IND"), includ
            flow    = factor(flow, levels = flows))
 }
 
-plot_select_country = function(isos = c("USA", "AUT", "CHN", "IND")) {
+plot_select_country = function(isos = c("USA", "AUT", "CHN", "IND", "BRA")) {
   df = make_select_country_data(isos)
 
   fill_vals = c(
@@ -826,7 +1161,7 @@ p_select_country = plot_select_country()
 ggsave("results/selected_country_comparison.pdf", p_select_country, width = 18, height = 10)
 
 # Country-arranged comparison with dual y-axis
-plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
+plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND", "BRA", "ZAF"),
                                     mode       = c("labor_energy", "kcal_protein"),
                                     bar_width  = 0.6,
                                     show_strip = TRUE) {
@@ -864,10 +1199,10 @@ plot_select_country_dual = function(isos = c("USA", "AUT", "CHN", "IND"),
 
   if (mode == "labor_energy") {
     primary_pat   = "labor";       secondary_pat = "Energy"
-    y_primary_lab = "Labor (hr/cap/day)"
-    y_second_lab  = "Energy (GJ/cap/yr)"
+    y_primary_lab = "Paid embodied labor only (hr/cap/day)"
+    y_second_lab  = "Embodied Energy (GJ/cap/yr)"
   } else {
-    primary_pat   = "Food supply"; secondary_pat = "Protein"
+    primary_pat   = "kcal"; secondary_pat = "Protein"
     y_primary_lab = "Food supply (kcal/cap/day)"
     y_second_lab  = "Protein supply (g/cap/day)"
   }
@@ -907,7 +1242,321 @@ p_select_kcal_protein  = plot_select_country_dual(mode = "kcal_protein", bar_wid
 p_select_combined = (p_select_labor_energy / p_select_kcal_protein) +
   plot_layout(guides = "collect") &
   theme(legend.position = "right", legend.text = element_text(size = 12))
-ggsave("results/selected_country_dual_axis.pdf", p_select_combined, width = 15, height = 10)
+# Kept under a separate filename since selected_country_dual_axis.pdf below now
+# points at the mosaic/marimekko version instead.
+ggsave("results/selected_country_bars.pdf", p_select_combined, width = 15, height = 10)
+
+# Marimekko-style mosaic: one facet per country, four rectangles (Domestic/Import x
+# food-sector/non-food-sector). Rectangle width = protein supply (g/cap/day) for that
+# flow (domestic or import); each x-span is split into two STACKED rectangles (food
+# at bottom, non-food on top). Height = time-conversion factor (hr / g protein) for
+# that sector, so rectangle AREA = total hours/cap/day spent on that sector x flow.
+mosaic_isos = c("USA", "FRA", "AUS", "CHN", "IDN", "IND", "BRA", "ZAF")
+
+pro_mosaic = summary_pro_df_long %>%
+  filter(footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos) %>%
+  mutate(country = as.character(country)) %>%
+  select(country, footprint_type, g_protein_per_cap_day = per_capita_value)
+
+pro_width = pro_mosaic %>%
+  mutate(source = ifelse(footprint_type == "domestic_per_capita", "Domestic", "Import"),
+         country = factor(country, levels = mosaic_isos),
+         source = factor(source, levels = c("Domestic", "Import"))) %>%
+  arrange(country, source) %>%
+  group_by(country) %>%
+  mutate(xmax = cumsum(g_protein_per_cap_day),
+         xmin = xmax - g_protein_per_cap_day) %>%
+  ungroup() %>%
+  select(country, footprint_type, source, xmin, xmax, g_protein_per_cap_day)
+
+hr_mosaic_sector = bind_rows(
+  summary_food_df_long %>% mutate(sector = "food"),
+  summary_nonfood_df_long %>% mutate(sector = "non-food")
+) %>%
+  filter(type %in% c("hr_m", "hr_f"), footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, footprint_type, sector) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+df_mosaic = hr_mosaic_sector %>%
+  left_join(pro_width, by = c("country", "footprint_type")) %>%
+  drop_na() %>%
+  mutate(min_per_g = hr_per_cap_day * 60 / g_protein_per_cap_day,
+         sector = factor(sector, levels = c("food", "non-food")),
+         fill_grp = factor(paste(source, sector, sep = " | "),
+                           levels = c("Domestic | food", "Domestic | non-food",
+                                      "Import | food", "Import | non-food"))) %>%
+  arrange(country, source, sector) %>%
+  group_by(country, source) %>%
+  mutate(ymax = cumsum(min_per_g),
+         ymin = ymax - min_per_g) %>%
+  ungroup() %>%
+  mutate(min_per_cap_day = hr_per_cap_day * 60,
+         label_min = ifelse(round(min_per_cap_day) == 0, NA_character_,
+                            paste0(round(min_per_cap_day), " min")),
+         fits_inside = (xmax - xmin) >= 0.05 * max(xmax, na.rm = TRUE) &
+                       (ymax - ymin) >= 0.06 * max(ymax, na.rm = TRUE),
+         label_y = ifelse(fits_inside, (ymin + ymax) / 2, ymax + 0.03 * max(ymax, na.rm = TRUE)),
+         # left_join can coerce the factor "country" column back to character;
+         # re-assert factor order explicitly so facets follow mosaic_isos exactly.
+         country = factor(as.character(country), levels = mosaic_isos))
+
+# Highest total (domestic + import) protein supply among the selected countries;
+# drawn on every facet except USA's own (since USA is the country that sets it),
+# with a "USA" label so it's clear whose value the line marks.
+protein_max = max(df_mosaic$xmax, na.rm = TRUE)
+vline_df = tibble(country = factor(setdiff(mosaic_isos, "USA"), levels = mosaic_isos))
+
+title_theme = theme(plot.title = element_text(size = 26, hjust = 0.5, face = "bold",
+                                              margin = margin(b = 20)))
+
+p_mosaic = ggplot(df_mosaic) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_grp),
+            color = "white", linewidth = 0.4) +
+  geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_min),
+            color = "black", size = 4, fontface = "bold", na.rm = TRUE) +
+  geom_vline(data = vline_df, aes(xintercept = protein_max),
+             linetype = "dashed", color = "black", linewidth = 0.5) +
+  geom_text(data = vline_df, aes(x = protein_max, y = Inf, label = "USA"),
+            color = "black", size = 4, fontface = "bold", hjust = 1.1, vjust = 1.5) +
+  facet_wrap(~country, ncol = 3) +
+  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
+                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
+                     name = "") +
+  labs(x = "Protein supply (g/cap/day)", y = "Time conversion factor (min / g protein)",
+       title = "Daily time embodied in domestic/imported protein provisioning") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(1.8, "lines"),
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size = 15),
+        strip.text = element_text(size = 18, color = "black", face = "bold")) +
+  title_theme
+print(p_mosaic)
+
+# Energy counterpart of the mosaic above: same daily protein width as the time mosaic
+# (for visual alignment), y-axis = MJ / g protein. The rectangle's literal geometric
+# area is technically GJ/day, but the printed label deliberately shows the annualized
+# GJ/yr figure instead, for readability.
+en_mosaic_sector = bind_rows(
+  summary_food_df_long %>% mutate(sector = "food"),
+  summary_nonfood_df_long %>% mutate(sector = "non-food")
+) %>%
+  filter(type == "en", footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, footprint_type, sector) %>%
+  summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
+
+df_mosaic_energy = en_mosaic_sector %>%
+  left_join(pro_width, by = c("country", "footprint_type")) %>%
+  drop_na() %>%
+  mutate(mj_per_g = gj_per_cap_day * 1000 / g_protein_per_cap_day,
+         sector = factor(sector, levels = c("food", "non-food")),
+         fill_grp = factor(paste(source, sector, sep = " | "),
+                           levels = c("Domestic | food", "Domestic | non-food",
+                                      "Import | food", "Import | non-food"))) %>%
+  arrange(country, source, sector) %>%
+  group_by(country, source) %>%
+  mutate(ymax = cumsum(mj_per_g),
+         ymin = ymax - mj_per_g) %>%
+  ungroup() %>%
+  mutate(gj_per_year = gj_per_cap_day * 365,
+         label_gj = ifelse(round(gj_per_year, 1) == 0, NA_character_,
+                            paste0(round(gj_per_year, 1), " GJ/yr")),
+         # If a rectangle is too small (in either dimension) for the label to plausibly
+         # fit inside it, place the label just above the rectangle instead.
+         fits_inside = (xmax - xmin) >= 0.05 * max(xmax, na.rm = TRUE) &
+                       (ymax - ymin) >= 0.06 * max(ymax, na.rm = TRUE),
+         label_y = ifelse(fits_inside, (ymin + ymax) / 2, ymax + 0.03 * max(ymax, na.rm = TRUE)),
+         # left_join can coerce the factor "country" column back to character;
+         # re-assert factor order explicitly so facets follow mosaic_isos exactly.
+         country = factor(as.character(country), levels = mosaic_isos))
+
+# Same reference line as the time mosaic (same underlying protein widths), skipping
+# USA's own facet and labeled "USA" on every other facet.
+protein_max_energy = max(df_mosaic_energy$xmax, na.rm = TRUE)
+vline_df_energy = tibble(country = factor(setdiff(mosaic_isos, "USA"), levels = mosaic_isos))
+
+p_mosaic_energy = ggplot(df_mosaic_energy) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_grp),
+            color = "white", linewidth = 0.4) +
+  geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_gj),
+            color = "black", size = 4, fontface = "bold", na.rm = TRUE) +
+  geom_vline(data = vline_df_energy, aes(xintercept = protein_max_energy),
+             linetype = "dashed", color = "black", linewidth = 0.5) +
+  geom_text(data = vline_df_energy, aes(x = protein_max_energy, y = Inf, label = "USA"),
+            color = "black", size = 4, fontface = "bold", hjust = 1.1, vjust = 1.5) +
+  facet_wrap(~country, ncol = 3) +
+  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
+                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
+                     name = "") +
+  labs(x = "Protein supply (g/cap/day)", y = "Energy conversion factor (MJ / g protein)",
+       title = "Yearly energy embodied in domestic/imported protein provisioning") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(1.8, "lines"),
+        axis.title = element_text(size = 24),
+        axis.text = element_text(size = 15),
+        strip.text = element_text(size = 18, color = "black", face = "bold")) +
+  title_theme
+print(p_mosaic_energy)
+
+# Combine time + energy side by side with one shared, centered, bottom legend
+# (both plots use the same fill scale, so guides="collect" deduplicates it).
+# A blank plot_spacer() between them creates the gap; each mosaic spans 3 facet
+# columns (ncol = 3) within its "1" width unit, so a gap of 1/12 = (1/4) / 3
+# comes out to a quarter of one facet's width.
+p_mosaic_combined = (p_mosaic | plot_spacer() | p_mosaic_energy) +
+  plot_layout(guides = "collect", widths = c(1, 1/12, 1)) &
+  theme(legend.position = "bottom")
+print(p_mosaic_combined)
+
+ggsave("results/protein_mosaic_selected_combined.pdf", p_mosaic_combined, width = 27, height = 11)
+
+# Same mosaic, but for every directly-modeled (non-RoW) country instead of the six selected ones
+mosaic_isos_nonrow = setdiff(regions$iso3c, row_countries)
+
+pro_mosaic_nonrow = summary_pro_df_long %>%
+  filter(footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country)) %>%
+  select(country, footprint_type, g_protein_per_cap_day = per_capita_value)
+
+# Order countries by domestic-only time/cap/day, descending
+hr_domestic_nonrow = bind_rows(summary_food_df_long, summary_nonfood_df_long) %>%
+  filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita",
+         country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+mosaic_nonrow_ord = hr_domestic_nonrow %>% arrange(-hr_per_cap_day) %>% pull(country)
+
+pro_width_nonrow = pro_mosaic_nonrow %>%
+  mutate(source = ifelse(footprint_type == "domestic_per_capita", "Domestic", "Import"),
+         country = factor(country, levels = mosaic_nonrow_ord),
+         source = factor(source, levels = c("Domestic", "Import"))) %>%
+  arrange(country, source) %>%
+  group_by(country) %>%
+  mutate(xmax = cumsum(g_protein_per_cap_day),
+         xmin = xmax - g_protein_per_cap_day) %>%
+  ungroup() %>%
+  select(country, footprint_type, source, xmin, xmax, g_protein_per_cap_day)
+
+hr_mosaic_nonrow_sector = bind_rows(
+  summary_food_df_long %>% mutate(sector = "food"),
+  summary_nonfood_df_long %>% mutate(sector = "non-food")
+) %>%
+  filter(type %in% c("hr_m", "hr_f"), footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, footprint_type, sector) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+df_mosaic_nonrow = hr_mosaic_nonrow_sector %>%
+  left_join(pro_width_nonrow, by = c("country", "footprint_type")) %>%
+  drop_na() %>%
+  mutate(hr_per_g = hr_per_cap_day / g_protein_per_cap_day,
+         sector = factor(sector, levels = c("food", "non-food")),
+         fill_grp = factor(paste(source, sector, sep = " | "),
+                           levels = c("Domestic | food", "Domestic | non-food",
+                                      "Import | food", "Import | non-food"))) %>%
+  arrange(country, source, sector) %>%
+  group_by(country, source) %>%
+  mutate(ymax = cumsum(hr_per_g),
+         ymin = ymax - hr_per_g) %>%
+  ungroup() %>%
+  mutate(min_per_cap_day = hr_per_cap_day * 60,
+         label_min = ifelse(round(min_per_cap_day) == 0, NA_character_,
+                            paste0(round(min_per_cap_day), " min")),
+         fits_inside = (xmax - xmin) >= 0.05 * max(xmax, na.rm = TRUE) &
+                       (ymax - ymin) >= 0.06 * max(ymax, na.rm = TRUE),
+         label_y = ifelse(fits_inside, (ymin + ymax) / 2, ymax + 0.03 * max(ymax, na.rm = TRUE)),
+         label_col = ifelse(fits_inside, "white", "black"))
+
+p_mosaic_nonrow = ggplot(df_mosaic_nonrow) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_grp),
+            color = "white", linewidth = 0.3) +
+  geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_min, color = I(label_col)),
+            size = 3, fontface = "bold", na.rm = TRUE) +
+  facet_wrap(~country, ncol = 7) +
+  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
+                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
+                     name = "") +
+  labs(x = "Protein supply (g/cap/day)", y = "Time conversion factor (hr / g protein)",
+       title = "Daily time embodied in domestic/imported protein provisioning") +
+  theme_minimal() +
+  theme(legend.position = "top",
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 6))
+print(p_mosaic_nonrow)
+
+ggsave("results/protein_time_mosaic_nonrow.pdf", p_mosaic_nonrow,
+       width = 24, height = ceiling(length(mosaic_isos_nonrow) / 7) * 3.2, limitsize = FALSE)
+
+# Energy counterpart of the non-RoW mosaic above: same daily protein width as the time
+# mosaic (for alignment), y-axis = MJ / g protein, label deliberately shows annual GJ/yr.
+en_mosaic_nonrow_sector = bind_rows(
+  summary_food_df_long %>% mutate(sector = "food"),
+  summary_nonfood_df_long %>% mutate(sector = "non-food")
+) %>%
+  filter(type == "en", footprint_type %in% c("domestic_per_capita", "import_per_capita"),
+         country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, footprint_type, sector) %>%
+  summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
+
+df_mosaic_nonrow_energy = en_mosaic_nonrow_sector %>%
+  left_join(pro_width_nonrow, by = c("country", "footprint_type")) %>%
+  drop_na() %>%
+  mutate(mj_per_g = gj_per_cap_day * 1000 / g_protein_per_cap_day,
+         sector = factor(sector, levels = c("food", "non-food")),
+         fill_grp = factor(paste(source, sector, sep = " | "),
+                           levels = c("Domestic | food", "Domestic | non-food",
+                                      "Import | food", "Import | non-food"))) %>%
+  arrange(country, source, sector) %>%
+  group_by(country, source) %>%
+  mutate(ymax = cumsum(mj_per_g),
+         ymin = ymax - mj_per_g) %>%
+  ungroup() %>%
+  mutate(gj_per_year = gj_per_cap_day * 365,
+         label_gj = ifelse(round(gj_per_year, 1) == 0, NA_character_,
+                            paste0(round(gj_per_year, 1), " GJ/yr")),
+         fits_inside = (xmax - xmin) >= 0.05 * max(xmax, na.rm = TRUE) &
+                       (ymax - ymin) >= 0.06 * max(ymax, na.rm = TRUE),
+         label_y = ifelse(fits_inside, (ymin + ymax) / 2, ymax + 0.03 * max(ymax, na.rm = TRUE)),
+         label_col = ifelse(fits_inside, "white", "black"))
+
+p_mosaic_nonrow_energy = ggplot(df_mosaic_nonrow_energy) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_grp),
+            color = "white", linewidth = 0.3) +
+  geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_gj, color = I(label_col)),
+            size = 3, fontface = "bold", na.rm = TRUE) +
+  facet_wrap(~country, ncol = 7) +
+  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
+                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
+                     name = "") +
+  labs(x = "Protein supply (g/cap/day)", y = "Energy conversion factor (MJ / g protein)",
+       title = "Yearly energy embodied in domestic/imported protein provisioning") +
+  theme_minimal() +
+  theme(legend.position = "top",
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 6))
+print(p_mosaic_nonrow_energy)
+
+ggsave("results/protein_energy_mosaic_nonrow.pdf", p_mosaic_nonrow_energy,
+       width = 24, height = ceiling(length(mosaic_isos_nonrow) / 7) * 3.2, limitsize = FALSE)
+
+# Same protein conversion factor comparison (domestic vs. import), but for the five
+# countries used in the dual-axis figure above (USA, AUT, CHN, IND, BRA)
+p_conv_combined_selected = make_protein_conversion_plot(c("USA", "AUT", "CHN", "IND", "BRA", "ZAF"),
+                                                         show_protein_dots = TRUE)
+print(p_conv_combined_selected)
+ggsave("results/protein_conversion_domestic_vs_import_selected.pdf", p_conv_combined_selected, width = 10, height = 8)
 
 
 #### Energy-time tradeoff ####
@@ -927,7 +1576,7 @@ summary_energy_protein = summary_food_df_long %>%
   left_join(summary_pro_df_long %>% select(country, footprint_type, per_capita_value),
             by = c("country", "footprint_type"), suffix = c("_energy", "_protein")) %>%
   ungroup() %>%
-  mutate(mj_per_100g_protein = (per_capita_value_energy / 365) / per_capita_value_protein * 100)
+  mutate(mj_per_50g_protein = (per_capita_value_energy / 365) / per_capita_value_protein * 50)
 
 # Domestic tradeoff: economic time only (all countries)
 tradeoff_kcal_econlabor = summary_time_kcal %>%
@@ -943,10 +1592,10 @@ tradeoff_kcal_econlabor = summary_time_kcal %>%
 
 tradeoff_protein_econlabor = summary_time_protein %>%
   filter(cat == "domestic", grepl("per_capita", footprint_type_time)) %>%
-  select(country, type, hr_per_100g_protein) %>%
+  select(country, type, hr_per_50g_protein) %>%
   left_join(summary_energy_protein %>%
               filter(footprint_type == "domestic_per_capita") %>%
-              select(country, mj_per_100g_protein, g_protein_per_cap_day = per_capita_value_protein),
+              select(country, mj_per_50g_protein, g_protein_per_cap_day = per_capita_value_protein),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
   drop_na() %>%
@@ -969,10 +1618,10 @@ tradeoff_kcal_allwork = summary_time_kcal %>%
 tradeoff_protein_allwork = summary_time_protein %>%
   filter(cat == "domestic", country %in% cty_ghd) %>%
   group_by(country, type) %>%
-  summarise(hr_per_100g_protein = sum(hr_per_100g_protein, na.rm = TRUE), .groups = "drop") %>%
+  summarise(hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE), .groups = "drop") %>%
   left_join(summary_energy_protein %>%
               filter(footprint_type == "domestic_per_capita") %>%
-              select(country, mj_per_100g_protein, g_protein_per_cap_day = per_capita_value_protein),
+              select(country, mj_per_50g_protein, g_protein_per_cap_day = per_capita_value_protein),
             by = "country") %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
   drop_na() %>%
@@ -1020,14 +1669,14 @@ p_tradeoff_kcal_allwork = tradeoff_scatter(
   coord_cartesian(ylim = c(NA, 3))
 
 p_tradeoff_protein_econlabor = tradeoff_scatter(
-  tradeoff_protein_econlabor, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. labor"))
+  tradeoff_protein_econlabor, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Econ. labor"))
 
 p_tradeoff_protein_allwork = tradeoff_scatter(
-  tradeoff_protein_allwork, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. + non-econ labor")) +
+  tradeoff_protein_allwork, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Econ. + non-econ labor")) +
   coord_cartesian(ylim = c(NA, 6))
 
 p_tradeoff_econlabor = (p_tradeoff_kcal_econlabor | p_tradeoff_protein_econlabor) +
@@ -1053,7 +1702,7 @@ nonecon_size_protein = summary_time_protein %>%
   filter(cat == "domestic", country %in% cty_ghd,
          grepl("non.econ", footprint_type_time)) %>%
   group_by(country, type) %>%
-  summarise(nonecon_hr_per_100g_protein = sum(hr_per_100g_protein, na.rm = TRUE), .groups = "drop")
+  summarise(nonecon_hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE), .groups = "drop")
 
 tradeoff_protein_econlabor_noneconsize = tradeoff_protein_econlabor %>%
   inner_join(nonecon_size_protein, by = c("country", "type"))
@@ -1064,9 +1713,9 @@ p_tradeoff_kcal_econlabor_noneconsize = tradeoff_scatter(
   paste0("Energy vs. economic time to provision 2000 kcal (", year, ") — sized by non-econ. time"))
 
 p_tradeoff_protein_econlabor_noneconsize = tradeoff_scatter(
-  tradeoff_protein_econlabor_noneconsize, "mj_per_100g_protein", "hr_per_100g_protein", "nonecon_hr_per_100g_protein",
-  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Non-econ. time (hr / 100 g protein)",
-  paste0("Energy vs. economic time to provision 100 g protein (", year, ") — sized by non-econ. time"))
+  tradeoff_protein_econlabor_noneconsize, "mj_per_50g_protein", "hr_per_50g_protein", "nonecon_hr_per_50g_protein",
+  "Energy (MJ / 50 g protein)", "Economic time (hr / 50 g protein)", "Non-econ. time (hr / 50 g protein)",
+  paste0("Energy vs. economic time to provision 50 g protein (", year, ") — sized by non-econ. time"))
 
 p_tradeoff_econlabor_noneconsize = (p_tradeoff_kcal_econlabor_noneconsize | p_tradeoff_protein_econlabor_noneconsize) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
@@ -1088,12 +1737,12 @@ tradeoff_protein_econlabor_importshare = tradeoff_protein_econlabor_noneconsize 
   left_join(protein_import_share, by = "country") %>%
   drop_na(protein_import_share)
 
-x_lim_importshare = range(tradeoff_protein_econlabor_importshare$mj_per_100g_protein, na.rm = TRUE)
+x_lim_importshare = range(tradeoff_protein_econlabor_importshare$mj_per_50g_protein, na.rm = TRUE)
 
 p_importshare_top = tradeoff_scatter(
-  tradeoff_protein_econlabor_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
-  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Protein import share",
-  paste0("Energy vs. economic time to provision 100 g protein (", year, ") — sized by protein import share")) +
+  tradeoff_protein_econlabor_importshare, "mj_per_50g_protein", "hr_per_50g_protein", "protein_import_share",
+  "Energy (MJ / 50 g protein)", "Economic time (hr / 50 g protein)", "Protein import share",
+  paste0("Energy vs. economic time to provision 50 g protein (", year, ") — sized by protein import share")) +
   coord_cartesian(xlim = x_lim_importshare, ylim = c(0.7, 0.75)) +
   scale_y_continuous(breaks = c(0.7, 0.75)) +
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
@@ -1103,8 +1752,8 @@ p_importshare_top$layers <- Filter(
   function(l) !inherits(l$geom, "GeomTextRepel"), p_importshare_top$layers)
 
 p_importshare_bottom = tradeoff_scatter(
-  tradeoff_protein_econlabor_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
-  "Energy (MJ / 100 g protein)", "Economic time (hr / 100 g protein)", "Protein import share",
+  tradeoff_protein_econlabor_importshare, "mj_per_50g_protein", "hr_per_50g_protein", "protein_import_share",
+  "Energy (MJ / 50 g protein)", "Economic time (hr / 50 g protein)", "Protein import share",
   NULL) +
   coord_cartesian(xlim = x_lim_importshare, ylim = c(0, 0.4)) +
   theme(strip.text = element_blank(), legend.position = "none")
@@ -1132,9 +1781,9 @@ tradeoff_protein_allwork_importshare = tradeoff_protein_allwork %>%
   drop_na(protein_import_share)
 
 p_tradeoff_protein_allwork_importshare = tradeoff_scatter(
-  tradeoff_protein_allwork_importshare, "mj_per_100g_protein", "hr_per_100g_protein", "protein_import_share",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "Protein import share",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Econ. + non-econ labor, sized by protein import share")) +
+  tradeoff_protein_allwork_importshare, "mj_per_50g_protein", "hr_per_50g_protein", "protein_import_share",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "Protein import share",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Econ. + non-econ labor, sized by protein import share")) +
   coord_cartesian(ylim = c(NA, 6))
 
 ggsave(paste0("results/tradeoff_convfac_protein_allwork_importshare.pdf"), p_tradeoff_protein_allwork_importshare, width = 12, height = 8)
@@ -1183,8 +1832,8 @@ tradeoff_protein_econlabor_consump = summary_food_df_long %>%
   summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
   left_join(pro_consumption, by = "country") %>%
   left_join(en_consumption, by = "country") %>%
-  mutate(hr_per_100g_protein = hr_per_cap_day / g_protein_per_cap_day * 100,
-         mj_per_100g_protein = mj_per_cap_day / g_protein_per_cap_day * 100) %>%
+  mutate(hr_per_50g_protein = hr_per_cap_day / g_protein_per_cap_day * 50,
+         mj_per_50g_protein = mj_per_cap_day / g_protein_per_cap_day * 50) %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
   drop_na() %>%
   mutate(is_row = as.character(country) %in% row_countries)
@@ -1215,8 +1864,8 @@ tradeoff_protein_allwork_consump = summary_food_df_long_with_ghd %>%
   summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
   left_join(pro_consumption, by = "country") %>%
   left_join(en_consumption, by = "country") %>%
-  mutate(hr_per_100g_protein = hr_per_cap_day / g_protein_per_cap_day * 100,
-         mj_per_100g_protein = mj_per_cap_day / g_protein_per_cap_day * 100) %>%
+  mutate(hr_per_50g_protein = hr_per_cap_day / g_protein_per_cap_day * 50,
+         mj_per_50g_protein = mj_per_cap_day / g_protein_per_cap_day * 50) %>%
   left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
   drop_na() %>%
   mutate(is_row = as.character(country) %in% row_countries)
@@ -1232,14 +1881,14 @@ p_tradeoff_kcal_allwork_consump = tradeoff_scatter(
   paste0("Energy vs. time to provision 2000 kcal (", year, ") — Total incl. household, consumption-based"))
 
 p_tradeoff_protein_econlabor_consump = tradeoff_scatter(
-  tradeoff_protein_econlabor_consump, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Economic, consumption-based"))
+  tradeoff_protein_econlabor_consump, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Economic, consumption-based"))
 
 p_tradeoff_protein_allwork_consump = tradeoff_scatter(
-  tradeoff_protein_allwork_consump, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time to provision 100 g protein (", year, ") — Total incl. household, consumption-based"))
+  tradeoff_protein_allwork_consump, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Total incl. household, consumption-based"))
 
 p_tradeoff_econlabor_consump = (p_tradeoff_kcal_econlabor_consump | p_tradeoff_protein_econlabor_consump) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
@@ -1324,6 +1973,207 @@ ggsave(paste0("results/tradeoff_pcap_econlabor.pdf"),        p_tradeoff_pcap_eco
 ggsave(paste0("results/tradeoff_pcap_allwork.pdf"),        p_tradeoff_pcap_allwork,        width = 14, height = 6)
 ggsave(paste0("results/tradeoff_pcap_nonfood_econlabor.pdf"),  p_tradeoff_pcap_nonfood_econlabor,  width = 14, height = 6)
 
+# Same as tradeoff_pcap_allwork.pdf, but hard-excluding RoW countries instead of just fading them
+p_tradeoff_pcap_allwork_nonrow = tradeoff_scatter(
+  tradeoff_pcap_allwork %>% filter(!is_row), "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
+  "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
+  paste0("Energy vs. time per capita (", year, ") — Food, Economic + non-economic, non-RoW"))
+ggsave("results/tradeoff_pcap_allwork_nonrow.pdf", p_tradeoff_pcap_allwork_nonrow, width = 14, height = 6)
+
+# Protein energy-time tradeoff, side by side: left = total per-capita energy/time,
+# right = per-50g-protein conversion factors, for non-RoW countries. Scope (which
+# pcap/protein dataframe pair to draw from, e.g. econlabor vs. allwork) is a parameter
+# so the same reused tradeoff_scatter() machinery can be pointed at either.
+make_tradeoff_protein_side_by_side = function(pcap_df, protein_df, scope_label, filename) {
+  # Hard-exclude RoW countries (rather than just fading them) to match "non-RoW countries"
+  if ("is_row" %in% colnames(pcap_df))    pcap_df    = pcap_df    %>% filter(!is_row)
+  if ("is_row" %in% colnames(protein_df)) protein_df = protein_df %>% filter(!is_row)
+
+  p_left = tradeoff_scatter(
+    pcap_df, "mj_per_cap_day", "hr_per_cap_day", "g_protein_per_cap_day",
+    "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
+    paste0("Energy vs. time per capita (", year, ") — ", scope_label, ", non-RoW"))
+
+  p_right = tradeoff_scatter(
+    protein_df, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+    "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+    paste0("Energy vs. time to provision 50 g protein (", year, ") — ", scope_label, ", non-RoW"))
+
+  p_combined = (p_left | p_right) + plot_layout(guides = "collect") & theme(legend.position = "right")
+  print(p_combined)
+  ggsave(filename, p_combined, width = 20, height = 8)
+  p_combined
+}
+
+# Food-sector, economic labor only (all non-RoW FABIO countries)
+p_tradeoff_protein_side_by_side_econlabor = make_tradeoff_protein_side_by_side(
+  tradeoff_pcap_econlabor, tradeoff_protein_econlabor, "Food, Economic",
+  "results/tradeoff_protein_pcap_vs_50g_nonrow_econlabor.pdf")
+
+# Food-sector, economic + non-economic (household) time — restricted to GHD-covered
+# countries only, since household time isn't measured elsewhere; a much smaller set
+# than the econlabor version above.
+p_tradeoff_protein_side_by_side_allwork = make_tradeoff_protein_side_by_side(
+  tradeoff_pcap_allwork, tradeoff_protein_allwork, "Food, Economic + non-economic",
+  "results/tradeoff_protein_pcap_vs_50g_nonrow_allwork.pdf")
+
+# Overlay econlabor and allwork on the same axes instead of separate panels. Energy
+# (x) is identical between the two scopes (both draw domestic food-sector energy from
+# the same source); only time (y) differs, since allwork adds household/non-economic
+# time on top — so each country's two points are joined by a dotted VERTICAL line.
+overlay_scatter = function(df, x_col, y_col, size_col, x_lab, y_lab, size_lab, title) {
+  ggplot(df, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+    geom_line(aes(group = country), linetype = "dotted", color = "grey40", linewidth = 0.5) +
+    geom_point(aes(size = .data[[size_col]], color = continent, shape = scope), alpha = 0.5) +
+    ggrepel::geom_text_repel(data = df %>% filter(scope == "Economic + non-economic"),
+                              aes(label = country), size = 3, max.overlaps = 15, show.legend = FALSE) +
+    scale_size_continuous(range = c(1, 12)) +
+    scale_shape_manual(values = c("Economic" = 16, "Economic + non-economic" = 17)) +
+    guides(color = guide_legend(override.aes = list(size = 6))) +
+    facet_wrap(~type, nrow = 1, labeller = labeller(type = c("hr_m" = "Male", "hr_f" = "Female"))) +
+    labs(x = x_lab, y = y_lab, size = size_lab, color = "Continent", shape = "Scope", title = title) +
+    theme_minimal() +
+    theme(legend.position = "right",
+          strip.text   = element_text(size = rel(1.5)),
+          axis.title   = element_text(size = rel(1.4)),
+          legend.text  = element_text(size = rel(1.3)),
+          legend.title = element_text(size = rel(1.3)))
+}
+
+# UNDP Gender Inequality Index (2020, via Our World in Data), inverted to a "gender
+# equity index" (1 - GII) so a bigger bubble reads as more gender-equitable, not less.
+gii_lookup = read.csv("data/gender_inequality_index_2020.csv") %>%
+  transmute(country = code, gender_equity_index = 1 - gii) %>%
+  filter(country %in% regions$iso3c)
+
+# FAOSTAT agrifood-system total GHG emissions (2020, kt CO2eq AR5), converted to
+# kg CO2eq per capita using the same population source as the rest of the pipeline.
+ghg_agrifood_raw = read.csv("data/FAOSTAT_agrifood_ghg_totals_2020.csv", check.names = FALSE)
+ghg_agrifood_lookup = ghg_agrifood_raw %>%
+  mutate(`Area Code (M49)` = as.numeric(gsub("'", "", `Area Code (M49)`)),
+         iso3c = countrycode::countrycode(`Area Code (M49)`,
+                                          origin = "un", destination = "iso3c",
+                                          warn = FALSE)) %>%
+  filter(!is.na(iso3c)) %>%
+  left_join(subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population),
+            by = "iso3c") %>%
+  drop_na(population) %>%
+  mutate(ghg_kg_co2eq_per_cap = Value * 1e6 / population) %>%  # kt -> kg
+  select(country = iso3c, ghg_kg_co2eq_per_cap)
+
+# FAO's total is production-based (domestic production = what's consumed domestically
+# + what's exported; imports are excluded since they're another country's production).
+# Split it into domestic vs. export portions using each country's domestic/export kcal
+# shares as a proxy, assuming uniform emissions intensity per kcal produced.
+kcal_domestic_export_share = summary_kcal_df_long %>%
+  filter(footprint_type %in% c("domestic_per_capita", "export_per_capita")) %>%
+  mutate(country = as.character(country)) %>%
+  select(country, footprint_type, kcal_per_cap_day = per_capita_value) %>%
+  pivot_wider(names_from = footprint_type, values_from = kcal_per_cap_day) %>%
+  mutate(domestic_share = domestic_per_capita / (domestic_per_capita + export_per_capita),
+         export_share   = export_per_capita   / (domestic_per_capita + export_per_capita))
+
+ghg_agrifood_lookup = ghg_agrifood_lookup %>%
+  left_join(kcal_domestic_export_share %>% select(country, domestic_share, export_share),
+            by = "country") %>%
+  mutate(ghg_domestic_kg_per_cap = ghg_kg_co2eq_per_cap * domestic_share,
+         ghg_export_kg_per_cap   = ghg_kg_co2eq_per_cap * export_share)
+
+# Domestic vs. export split, per capita, non-RoW countries only — reusable so the
+# same treatment can be applied to any total/domestic/export triple of columns.
+make_ghg_split_plot = function(lookup_df, domestic_col, export_col, total_col, y_lab, title) {
+  ord = lookup_df %>%
+    filter(!country %in% row_countries) %>%
+    arrange(-.data[[total_col]]) %>%
+    pull(country)
+
+  df_long = lookup_df %>%
+    filter(!country %in% row_countries) %>%
+    select(country, all_of(c(domestic_col, export_col))) %>%
+    pivot_longer(cols = c(domestic_col, export_col), names_to = "flow", values_to = "value") %>%
+    mutate(flow = ifelse(flow == domestic_col, "Domestic", "Export"),
+           flow = factor(flow, levels = c("Export", "Domestic")),
+           country = factor(country, levels = ord)) %>%
+    drop_na()
+
+  ggplot(df_long, aes(x = country, y = value, fill = flow)) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = c("Domestic" = "#1f77b4", "Export" = "#ff7f0e")) +
+    labs(x = "Country (ISO3)", y = y_lab, fill = "", title = title) +
+    theme_minimal() +
+    theme(legend.position = "top", axis.text.x = element_text(angle = 90, hjust = 1))
+}
+
+p_ghg_split_nonrow = make_ghg_split_plot(
+  ghg_agrifood_lookup, "ghg_domestic_kg_per_cap", "ghg_export_kg_per_cap", "ghg_kg_co2eq_per_cap",
+  "kg CO2eq / cap / yr",
+  paste0("Agrifood-system total GHG emissions per capita (", year, ") — non-RoW"))
+
+# FAOSTAT "Emissions from Energy use in agriculture" (on-farm energy use only — a
+# narrower scope than the "Energy" line item inside Emissions Totals, which covers
+# the whole agrifood supply chain). No CO2eq element is provided directly, so it's
+# built from the raw CH4/CO2/N2O elements using IPCC AR5 GWP100 (no climate-carbon
+# feedback) factors — the same convention FAOSTAT itself uses for its CO2eq(AR5) figures.
+energy_ag_raw = read.csv("data/FAOSTAT_energy_in_agriculture_totals_2020.csv", check.names = FALSE)
+energy_ag_lookup = energy_ag_raw %>%
+  mutate(`Area Code (M49)` = as.numeric(gsub("'", "", `Area Code (M49)`)),
+         iso3c = countrycode::countrycode(`Area Code (M49)`,
+                                          origin = "un", destination = "iso3c",
+                                          warn = FALSE)) %>%
+  filter(!is.na(iso3c)) %>%
+  select(iso3c, Element, Value) %>%
+  pivot_wider(names_from = Element, values_from = Value, values_fn = sum) %>%
+  mutate(co2eq_kt = `Emissions (CO2)` * 1 + `Emissions (CH4)` * 28 + `Emissions (N2O)` * 265) %>%
+  left_join(subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population),
+            by = "iso3c") %>%
+  drop_na(population) %>%
+  mutate(energy_ag_kg_co2eq_per_cap = co2eq_kt * 1e6 / population) %>%
+  select(country = iso3c, energy_ag_kg_co2eq_per_cap) %>%
+  left_join(kcal_domestic_export_share %>% select(country, domestic_share, export_share), by = "country") %>%
+  mutate(energy_ag_domestic_kg_per_cap = energy_ag_kg_co2eq_per_cap * domestic_share,
+         energy_ag_export_kg_per_cap   = energy_ag_kg_co2eq_per_cap * export_share)
+
+p_energy_ag_split_nonrow = make_ghg_split_plot(
+  energy_ag_lookup, "energy_ag_domestic_kg_per_cap", "energy_ag_export_kg_per_cap", "energy_ag_kg_co2eq_per_cap",
+  "kg CO2eq / cap / yr",
+  paste0("Agricultural energy-use GHG emissions per capita (", year, ") — non-RoW"))
+
+p_ghg_energy_combined = (p_ghg_split_nonrow | p_energy_ag_split_nonrow) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+print(p_ghg_energy_combined)
+
+ggsave("results/ghg_and_energy_ag_domestic_vs_export_nonrow.pdf", p_ghg_energy_combined, width = 30, height = 9)
+
+combined_pcap = bind_rows(
+  tradeoff_pcap_econlabor %>% mutate(scope = "Economic"),
+  tradeoff_pcap_allwork %>% filter(!is_row) %>% mutate(scope = "Economic + non-economic")
+) %>%
+  inner_join(gii_lookup, by = "country")
+
+combined_protein50g = bind_rows(
+  tradeoff_protein_econlabor %>% mutate(scope = "Economic"),
+  tradeoff_protein_allwork %>% filter(!is_row) %>% mutate(scope = "Economic + non-economic")
+) %>%
+  inner_join(gii_lookup, by = "country")
+
+p_left_overlay = overlay_scatter(
+  combined_pcap, "mj_per_cap_day", "hr_per_cap_day", "gender_equity_index",
+  "Energy (MJ/cap/day)", "Time (hr/cap/day)", "Gender equity index (1 - GII)",
+  paste0("Energy vs. time per capita (", year, ") — Economic vs. Economic + non-economic, non-RoW"))
+
+p_right_overlay = overlay_scatter(
+  combined_protein50g, "mj_per_50g_protein", "hr_per_50g_protein", "gender_equity_index",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "Gender equity index (1 - GII)",
+  paste0("Energy vs. time to provision 50 g protein (", year, ") — Economic vs. Economic + non-economic, non-RoW"))
+
+p_tradeoff_protein_overlay = (p_left_overlay | p_right_overlay) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+print(p_tradeoff_protein_overlay)
+
+ggsave("results/tradeoff_protein_pcap_vs_50g_nonrow_overlay.pdf", p_tradeoff_protein_overlay, width = 22, height = 8)
+
 # Non-food: normalised by kcal and protein (non-food time/energy per unit nutrition)
 tradeoff_kcal_nonfood_econlabor = tradeoff_pcap_nonfood_econlabor %>%
   inner_join(kcal_domestic, by = "country") %>%
@@ -1331,8 +2181,8 @@ tradeoff_kcal_nonfood_econlabor = tradeoff_pcap_nonfood_econlabor %>%
          hr_per_2000kcal = hr_per_cap_day  / kcal_per_cap_day * 2000)
 
 tradeoff_protein_nonfood_econlabor = tradeoff_pcap_nonfood_econlabor %>%
-  mutate(mj_per_100g_protein = mj_per_cap_day / g_protein_per_cap_day * 100,
-         hr_per_100g_protein = hr_per_cap_day  / g_protein_per_cap_day * 100)
+  mutate(mj_per_50g_protein = mj_per_cap_day / g_protein_per_cap_day * 50,
+         hr_per_50g_protein = hr_per_cap_day  / g_protein_per_cap_day * 50)
 
 p_tradeoff_kcal_nonfood_econlabor = tradeoff_scatter(
   tradeoff_kcal_nonfood_econlabor, "mj_per_2000kcal", "hr_per_2000kcal", "kcal_per_cap_day",
@@ -1340,9 +2190,9 @@ p_tradeoff_kcal_nonfood_econlabor = tradeoff_scatter(
   paste0("Energy vs. time per 2000 kcal (", year, ") — Non-food, Economic"))
 
 p_tradeoff_protein_nonfood_econlabor = tradeoff_scatter(
-  tradeoff_protein_nonfood_econlabor, "mj_per_100g_protein", "hr_per_100g_protein", "g_protein_per_cap_day",
-  "Energy (MJ / 100 g protein)", "Time (hr / 100 g protein)", "g protein/cap/day",
-  paste0("Energy vs. time per 100 g protein (", year, ") — Non-food, Economic"))
+  tradeoff_protein_nonfood_econlabor, "mj_per_50g_protein", "hr_per_50g_protein", "g_protein_per_cap_day",
+  "Energy (MJ / 50 g protein)", "Time (hr / 50 g protein)", "g protein/cap/day",
+  paste0("Energy vs. time per 50 g protein (", year, ") — Non-food, Economic"))
 
 p_tradeoff_nonfood_econlabor = (p_tradeoff_kcal_nonfood_econlabor | p_tradeoff_protein_nonfood_econlabor) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
