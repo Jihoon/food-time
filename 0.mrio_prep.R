@@ -199,6 +199,38 @@ df_water_energy = read_csv("data/water_firewood.csv") %>%
   pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_capita_value") %>%
   drop_na()
 
+# 4.2c. Read IEA residential energy end-use data — household energy for food-related appliances
+# (cooking, refrigeration/freezing, dish washing), GJ per capita, 2020.
+# CORRECTION has duplicate TC/X_TC rows per end-use (temperature-corrected vs not); these
+# appliance end-uses aren't weather-sensitive so the two are identical — keep only "TC" to
+# avoid double-counting. ####
+df_iea_residential = read_csv("data/IEA - EEI RESIDENTIAL.csv") %>%
+  mutate(country = countrycode::countrycode(`Country/Region`, origin = "country.name", destination = "iso3c")) %>%
+  filter(!is.na(country), UNIT == "GJ_CAP", TIME_PERIOD == 2020, CORRECTION == "TC")
+
+df_household_energy_food = df_iea_residential %>%
+  filter(ENDUSE %in% c("FREEZER", "REFFREEZ", "REFRIG", "DISH_WASH", "COOKING")) %>%
+  group_by(country) %>%
+  summarise(energy_gj_cap = sum(OBS_VALUE, na.rm = TRUE), .groups = "drop")
+
+# 4.2d. Availability check: COOKING vs TOTAL residential energy, for countries reporting both ####
+df_cooking_total = df_iea_residential %>%
+  filter(ENDUSE %in% c("COOKING", "TOTAL")) %>%
+  select(country, ENDUSE, OBS_VALUE) %>%
+  pivot_wider(names_from = ENDUSE, values_from = OBS_VALUE) %>%
+  filter(!is.na(COOKING), !is.na(TOTAL)) %>%
+  mutate(cooking_total_ratio = COOKING / TOTAL)
+
+# 4.2e. By-country breakdown: COOKING, DISH_WASH, refrigeration/freezing (FREEZER+REFFREEZ+REFRIG), TOTAL ####
+df_iea_breakdown = df_iea_residential %>%
+  filter(ENDUSE %in% c("COOKING", "DISH_WASH", "FREEZER", "REFFREEZ", "REFRIG", "TOTAL")) %>%
+  mutate(ENDUSE = ifelse(ENDUSE %in% c("FREEZER", "REFFREEZ", "REFRIG"), "REFRIG_ALL", ENDUSE)) %>%
+  group_by(country, ENDUSE) %>%
+  summarise(OBS_VALUE = sum(OBS_VALUE, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = ENDUSE, values_from = OBS_VALUE) %>%
+  mutate(FOOD_ENERGY_TOTAL = COOKING + DISH_WASH + REFRIG_ALL) %>%
+  select(country, COOKING, DISH_WASH, REFRIG_ALL, FOOD_ENERGY_TOTAL, TOTAL) 
+
 # 4.3. Combine the dataframes ####
 df_ghd_combined = bind_rows(df_ghd_gender, df_restaurant, df_water_energy)
 
