@@ -7,25 +7,39 @@
 l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
 l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-# Footprint summed at the FABIO country level
-fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
-
 n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
-# Footprint for non-food sectors is calculated by multiplying the intensity matrix 
-# (in the same dim as satellite (32725x23001)) with the FABIO_x_hh vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
 
-fp_nonfood <- lapply(l_int_i, function(d) {
-  fp_list <- vector("list", nrreg)
-  for (i in 1:nrreg) {
-    print(paste("Processing region", i, "of", nrreg))
-    A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
-    # Build B_i as block diagonal: each column k gets FABIO_x_hh commodities for region k, source i
-    B_i <- Matrix::Diagonal(x = as.vector(FABIO_x_hh[, i])) %*% 
-      kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
-    fp_list[[i]] <- A_i %*% B_i
-  }
-  do.call(rbind, fp_list) %>% as("CsparseMatrix")
-})
+# Compute food-sector (direct) and non-food-sector (indirect) footprints for
+# a given embodied-production matrix X (23001 x 187, rows = producer
+# country/product, columns = consuming country). Used both for the full
+# FABIO_x_hh (below) and, further down, for the domestic-/import-consumption
+# restricted variants (X_dom/X_imp) that split effort by whether it feeds
+# domestically- or internationally-traded final food products.
+compute_footprints <- function(X) {
+  fp_food_X <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% X)
+
+  # Footprint for non-food sectors is calculated by multiplying the intensity matrix
+  # (in the same dim as satellite (32725x23001)) with the X vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
+  fp_nonfood_X <- lapply(l_int_i, function(d) {
+    fp_list <- vector("list", nrreg)
+    for (i in 1:nrreg) {
+      print(paste("Processing region", i, "of", nrreg))
+      A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
+      # Build B_i as block diagonal: each column k gets X commodities for region k, source i
+      B_i <- Matrix::Diagonal(x = as.vector(X[, i])) %*%
+        kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
+      fp_list[[i]] <- A_i %*% B_i
+    }
+    do.call(rbind, fp_list) %>% as("CsparseMatrix")
+  })
+
+  list(food = fp_food_X, nonfood = fp_nonfood_X)
+}
+
+# Footprint summed at the FABIO country level
+fp_res <- compute_footprints(FABIO_x_hh)
+fp_food <- fp_res$food
+fp_nonfood <- fp_res$nonfood
 
 # Save the results
 saveRDS(fp_food, file = paste0("data/footprint_food_", year, ".rds"))
@@ -99,6 +113,87 @@ for (i in names(summary_food[2:3])) {
   summary_food[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food[[i]]
   summary_nonfood[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood[[i]]
 }
+
+
+
+#### 1.3. Domestic-effort vs. import-effort within domestic/import protein consumption ####
+
+# summary_food/summary_nonfood above split effort by *where the work happened*
+# (domestic_per_capita = producer country == consumer country), independent of
+# whether the food product the work is embodied in was itself domestically-
+# traded or imported (per FABIO_y_hh). That means "domestic" here doesn't line
+# up with FABIO_y_hh's "domestic protein": e.g. labor spent domestically
+# processing an imported raw ingredient counts as "domestic" above, blurring
+# together two different things.
+#
+# Split FABIO_y_hh itself first, by whether the final good was domestically-
+# traded (Y_dom) or imported (Y_imp) — its existing diagonal/off-diagonal
+# structure, nothing new — then trace *each* piece separately through
+# FABIO_L and the same intensities used above. This gives, for each country's
+# domestically-traded food consumption and (separately) its imported food
+# consumption, a further domestic-effort/import-effort split — matched
+# exactly to FABIO_y_hh's own domestic/import split, since it's the same
+# consumption slice on both sides. Because Y_dom + Y_imp = FABIO_y_hh exactly
+# and FABIO_L is linear, the four resulting matrices sum back to
+# l_food_country/l_nonfood_country exactly (see TEST below).
+row_country_idx = rep(seq_len(nrreg), each = nrcom)  # producing-country index for each FABIO_y_hh row
+
+y_hh_t = as(FABIO_y_hh, "TsparseMatrix")
+is_domestic_flow = row_country_idx[y_hh_t@i + 1] == (y_hh_t@j + 1)
+
+Y_dom = Matrix::sparseMatrix(i = y_hh_t@i[is_domestic_flow] + 1, j = y_hh_t@j[is_domestic_flow] + 1,
+                             x = y_hh_t@x[is_domestic_flow], dims = dim(FABIO_y_hh))
+Y_imp = Matrix::sparseMatrix(i = y_hh_t@i[!is_domestic_flow] + 1, j = y_hh_t@j[!is_domestic_flow] + 1,
+                             x = y_hh_t@x[!is_domestic_flow], dims = dim(FABIO_y_hh))
+
+X_dom = FABIO_L %*% Y_dom  # embodied production feeding each country's domestically-traded food consumption
+X_imp = FABIO_L %*% Y_imp  # embodied production feeding each country's imported food consumption
+
+fp_domcons = compute_footprints(X_dom)
+fp_impcons = compute_footprints(X_imp)
+
+l_food_country_domcons    = lapply(fp_domcons$food,    agg_country_footprint)
+l_food_country_impcons    = lapply(fp_impcons$food,    agg_country_footprint)
+l_nonfood_country_domcons = lapply(fp_domcons$nonfood, agg_country_footprint)
+l_nonfood_country_impcons = lapply(fp_impcons$nonfood, agg_country_footprint)
+
+# TEST: for each metric, l_food_country_domcons[[m]] + l_food_country_impcons[[m]] ~ l_food_country[[m]]
+#       (and likewise for nonfood)
+
+summary_food_domcons    = lapply(l_food_country_domcons,    country_summary)
+summary_food_impcons    = lapply(l_food_country_impcons,    country_summary)
+summary_nonfood_domcons = lapply(l_nonfood_country_domcons, country_summary)
+summary_nonfood_impcons = lapply(l_nonfood_country_impcons, country_summary)
+
+for (i in names(summary_food_domcons[2:3])) {
+  summary_food_domcons[[i]]    %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food_domcons[[i]]
+  summary_food_impcons[[i]]    %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food_impcons[[i]]
+  summary_nonfood_domcons[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood_domcons[[i]]
+  summary_nonfood_impcons[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood_impcons[[i]]
+}
+
+# Tidy 8-category table: {domestic, import} protein-consumption bucket x
+# {food, non-food} sector x {domestic, import} effort-origin, per country x
+# metric (hr_m/hr_f/en). Bar widths (protein supply) should use the existing
+# y_hh-based domestic/import protein totals unchanged; this table only
+# supplies the height-stacking within each protein bucket.
+effort_consumption_df = bind_rows(
+  bind_rows(lapply(names(summary_food_domcons), function(m)
+    summary_food_domcons[[m]] %>% mutate(type = m, sector = "food", protein_source = "domestic"))),
+  bind_rows(lapply(names(summary_food_impcons), function(m)
+    summary_food_impcons[[m]] %>% mutate(type = m, sector = "food", protein_source = "import"))),
+  bind_rows(lapply(names(summary_nonfood_domcons), function(m)
+    summary_nonfood_domcons[[m]] %>% mutate(type = m, sector = "non-food", protein_source = "domestic"))),
+  bind_rows(lapply(names(summary_nonfood_impcons), function(m)
+    summary_nonfood_impcons[[m]] %>% mutate(type = m, sector = "non-food", protein_source = "import")))
+) %>%
+  select(country, type, sector, protein_source, domestic_per_capita, import_per_capita) %>%
+  pivot_longer(cols = c(domestic_per_capita, import_per_capita),
+               names_to = "effort_origin", values_to = "per_capita_value") %>%
+  mutate(effort_origin = ifelse(effort_origin == "domestic_per_capita", "domestic", "import"),
+         is_row = country %in% FABIO_reg$ISO[grepl("RoW", FABIO_reg$EXIOBASE)])
+
+
 
 # Stack vertically all elements in each list after adding a column "type" filled with the name the element
 summary_food_df = bind_rows(lapply(names(summary_food),
