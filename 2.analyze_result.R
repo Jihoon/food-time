@@ -113,6 +113,8 @@ row_countries      <- FABIO_reg$ISO[grepl("RoW", FABIO_reg$EXIOBASE)]
 summary_food_df    <- summary_food_df    %>% mutate(is_row = country %in% row_countries)
 summary_nonfood_df <- summary_nonfood_df %>% mutate(is_row = country %in% row_countries)
 
+# 
+
 # Order of domestic hours (by female)
 sum_ord = (summary_food_df %>%   
     filter(type %in% c("hr_f")) %>% 
@@ -138,6 +140,23 @@ summary_nonfood_df_long = summary_nonfood_df %>%
                names_to = "footprint_type", values_to = "per_capita_value") %>%
   mutate(country = factor(country, levels = sum_ord),
          footprint_type = factor(footprint_type, levels = c("export_per_capita", "import_per_capita", "domestic_per_capita")))
+
+
+# TEST: compare food-sector (direct) energy footprint from MRIO (summary_food[["en"]], MJ/cap/year)
+# against IEA household food-related appliance energy (df_iea_breakdown, GJ/cap/year), both
+# converted to MJ/cap/day ####
+test_energy_mrio_iea = summary_food[["en"]] %>%
+  select(country, mrio_domestic_mj_cap_day = domestic_per_capita,
+         mrio_export_mj_cap_day = export_per_capita,
+         mrio_import_mj_cap_day = import_per_capita) %>%
+  mutate(across(starts_with("mrio_"), ~ .x / 365)) %>%  # MJ/cap/year -> MJ/cap/day
+  inner_join(
+    df_iea_breakdown %>%
+      mutate(across(c(COOKING, DISH_WASH, REFRIG_ALL, TOTAL), ~ .x * 1000 / 365,  # GJ/cap/year -> MJ/cap/day
+                    .names = "iea_{.col}_mj_cap_day")) %>%
+      select(country, starts_with("iea_")),
+    by = "country"
+  )
 
 
 # Vertically stack df_ghd_gender to summary_food_df_long, and then plot again with the same function plot_countries. This will add the non-economic food time to the existing labor footprint
