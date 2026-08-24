@@ -561,6 +561,49 @@ p_protein = plot_countries(summary_pro_df_long, "Daily protein supply per capita
 ggsave("results/kcal_supply.pdf",    p_kcal,    width = 18, height = 6)
 ggsave("results/protein_supply.pdf", p_protein, width = 18, height = 6)
 
+# Domestic-content-consistent versions (see nutrient_domestic_content_matrix(),
+# 1.mrio_convert.R): same total nutrient content as df_nutri/summary_*_df_long
+# above, but with domestic/export/import reallocated via FABIO_L to match how
+# the hour/energy footprint traces production, instead of FABIO_y_hh's
+# single-hop trade ledger. Used below wherever nutrients are joined against
+# hour/energy footprints (summary_time_kcal, summary_time_protein,
+# make_protein_conversion_plot, country spotlight); summary_kcal_df_long /
+# summary_pro_df_long above remain the right choice for standalone
+# consumption views (p_kcal, p_protein, the consumption Sankeys).
+df_nutri_dc = list("kcal" = country_summary(mat_cal_domestic_content),
+                   "protein" = country_summary(mat_pro_domestic_content))
+
+for (i in 1:length(df_nutri_dc)) {
+  df_nutri_dc[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 1e6 / 365)) -> df_nutri_dc[[i]]
+}
+
+summary_kcal_df_long_dc = df_nutri_dc[["kcal"]] %>%
+  select(-c(population, domestic, export, import)) %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"),
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type,
+                                 levels = c("export_per_capita", "import_per_capita", "domestic_per_capita"))) %>%
+  drop_na() %>%
+  mutate(cat = case_when(
+    footprint_type == "export_per_capita" ~ "export",
+    footprint_type == "import_per_capita" ~ "import",
+    .default = "domestic"
+  ))
+summary_pro_df_long_dc = df_nutri_dc[["protein"]] %>%
+  select(-c(population, domestic, export, import)) %>%
+  pivot_longer(cols = c("domestic_per_capita", "export_per_capita", "import_per_capita"),
+               names_to = "footprint_type", values_to = "per_capita_value") %>%
+  mutate(country = factor(country, levels = sum_ord),
+         footprint_type = factor(footprint_type,
+                                 levels = c("export_per_capita", "import_per_capita", "domestic_per_capita"))) %>%
+  drop_na() %>%
+  mutate(cat = case_when(
+    footprint_type == "export_per_capita" ~ "export",
+    footprint_type == "import_per_capita" ~ "import",
+    .default = "domestic"
+  ))
+
 
 # Domestic vs. import conversion factors: protein per hour and protein per unit energy,
 # using total (food-sector + non-food-sector) economic hours/energy — no household time.
@@ -579,7 +622,7 @@ make_protein_conversion_plot = function(countries, country_order = countries, sh
     group_by(country, footprint_type) %>%
     summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
 
-  pro_conv_total = summary_pro_df_long %>%
+  pro_conv_total = summary_pro_df_long_dc %>%
     filter(footprint_type %in% c("domestic_per_capita", "import_per_capita"),
            country %in% countries) %>%
     mutate(country = as.character(country)) %>%
@@ -661,8 +704,8 @@ summary_time_kcal = summary_food_df_long_with_ghd %>%
   )) %>%
   select(country, type, cat, footprint_type, per_capita_value) %>%
   # pivot_wider(names_from = footprint_type, values_from = per_capita_value) %>%
-  left_join(summary_kcal_df_long %>% select(country, cat, footprint_type, per_capita_value),
-              # pivot_wider(names_from = footprint_type, values_from = per_capita_value), 
+  left_join(summary_kcal_df_long_dc %>% select(country, cat, footprint_type, per_capita_value),
+              # pivot_wider(names_from = footprint_type, values_from = per_capita_value),
             by = c("country", "cat"), suffix = c("_time", "_kcal")) %>% ungroup() %>%
   mutate(hr_per_2000kcal = per_capita_value_time / per_capita_value_kcal * 2e3)
 
@@ -750,7 +793,7 @@ summary_time_protein = summary_food_df_long_with_ghd %>%
     .default = "domestic"
   )) %>%
   select(country, type, cat, footprint_type, per_capita_value) %>%
-  left_join(summary_pro_df_long %>% select(country, cat, footprint_type, per_capita_value),
+  left_join(summary_pro_df_long_dc %>% select(country, cat, footprint_type, per_capita_value),
             by = c("country", "cat"), suffix = c("_time", "_protein")) %>%
   ungroup() %>%
   mutate(hr_per_50g_protein = per_capita_value_time / per_capita_value_protein * 50)
@@ -956,8 +999,8 @@ make_spotlight_data = function(iso) {
            per_capita_value = ifelse(type == "en", per_capita_value / 1e3, per_capita_value))
 
   nutrition = bind_rows(
-    summary_kcal_df_long %>% mutate(type = "kcal",    sector = "—"),
-    summary_pro_df_long  %>% mutate(type = "protein", sector = "—")
+    summary_kcal_df_long_dc %>% mutate(type = "kcal",    sector = "—"),
+    summary_pro_df_long_dc  %>% mutate(type = "protein", sector = "—")
   ) %>%
     filter(as.character(country) == iso) %>%
     select(type, footprint_type, per_capita_value, sector) %>%
@@ -976,8 +1019,8 @@ make_spotlight_data = function(iso) {
     )
 }
 
-mat_kcal_country = agg_country_footprint(FABIO_y_hh_cal)  # 187×187, kcal
-mat_pro_country  = agg_country_footprint(FABIO_y_hh_pro)  # 187×187, g protein
+mat_kcal_country = mat_cal_domestic_content  # 187×187, kcal — domestic-content-consistent (see 1.mrio_convert.R)
+mat_pro_country  = mat_pro_domestic_content  # 187×187, g protein — domestic-content-consistent
 
 make_continent_data = function(iso) {
   pop = subset(countrypops, year == yr & country_code_3 == iso)$population

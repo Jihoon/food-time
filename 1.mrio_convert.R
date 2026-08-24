@@ -165,6 +165,59 @@ df_stat = data.frame(
 
 
 
-  
-  
+#### 4. Domestic-content-consistent protein/kcal country matrices ####
+
+# FABIO_y_hh_cal/pro (above) use FABIO_y_hh directly: a single-hop trade
+# ledger, so a country's "domestic" consumption of e.g. canned fish is
+# whatever FABIO recorded as domestically-traded, even if the fish inside it
+# was imported. The hour/energy footprint (2.analyze_result.R), by contrast,
+# is built on FABIO_x_hh = FABIO_L %*% FABIO_y_hh, tracing hours through the
+# full multi-country supply chain. That mismatch means "domestic" /
+# "export" / "import" mean different things on the two sides of any
+# hr-per-kcal or g-protein-per-hr ratio that joins the two.
+#
+# nutrient_domestic_content_matrix() reallocates FABIO_y_hh's nutrient
+# content using FABIO_L, weighted by the nutrient coefficient itself (not
+# raw mass) so bulk non-nutritive inputs (packaging, water, filler) don't
+# dilute the sourcing signal. For each item and consuming country, it traces
+# back to wherever the embodied biomass was actually produced (e.g. the fish
+# inside canned fish), not just where the traded final good was last
+# processed. Total nutrient content is unchanged from coeff %*% FABIO_y_hh
+# (same totals as FABIO_y_hh_cal/pro); only the domestic/export/import split
+# changes, so it can be joined against the x_hh-based footprint on a
+# consistent basis.
+nutrient_domestic_content_matrix <- function(coeff, L, y_hh, nrreg, nrcom) {
+  L_w = Matrix::Diagonal(x = coeff) %*% L
+
+  # Block row-sum L_w by producing country: D[p, ] = colSums(L_w rows of country p)
+  D = matrix(0, nrow = nrreg, ncol = ncol(L_w))
+  for (p in 1:nrreg) {
+    D[p, ] = Matrix::colSums(L_w[((p - 1) * nrcom + 1):(p * nrcom), ])
+  }
+
+  # For each item, reallocate y_hh's consuming-country columns across
+  # producing countries using D, then sum the resulting producer x consumer
+  # flows across all items.
+  flow_total = matrix(0, nrow = nrreg, ncol = nrreg)
+  for (k in seq_len(nrcom)) {
+    rows_k = seq(k, by = nrcom, length.out = nrreg)  # item k's row in every country block
+    D_k = D[, rows_k]                                # producer p x y_hh-origin i
+    Y_k = as.matrix(y_hh[rows_k, ])                  # y_hh-origin i x consumer j
+    flow_total = flow_total + D_k %*% Y_k
+  }
+
+  rownames(flow_total) = colnames(flow_total) = regions$iso3c
+  flow_total
+}
+
+mat_cal_domestic_content = nutrient_domestic_content_matrix(
+  coeff_cal$kcal_per_kg, FABIO_L, FABIO_y_hh, nrreg, nrcom) * 1000 # kcal
+mat_pro_domestic_content = nutrient_domestic_content_matrix(
+  coeff_pro$protein_per_kg, FABIO_L, FABIO_y_hh, nrreg, nrcom) * 1000 # g
+
+# TEST: sum(mat_cal_domestic_content) ~ sum(FABIO_y_hh_cal); sum(mat_pro_domestic_content) ~ sum(FABIO_y_hh_pro)
+
+
+
+
   
