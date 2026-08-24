@@ -195,15 +195,27 @@ nutrient_domestic_content_matrix <- function(coeff, L, y_hh, nrreg, nrcom) {
     D[p, ] = Matrix::colSums(L_w[((p - 1) * nrcom + 1):(p * nrcom), ])
   }
 
-  # For each item, reallocate y_hh's consuming-country columns across
-  # producing countries using D, then sum the resulting producer x consumer
-  # flows across all items.
+  # For each item, trace y_hh's consuming-country columns across producing
+  # countries via D. colSums(D_k %*% Y_k) is *not* the item's true nutrient
+  # total: it's inflated by every upstream product L pulls in on the way
+  # (e.g. feed grain counted at its own row, on top of the meat it becomes).
+  # Rescale each item's producer x consumer flow so it sums (per consuming
+  # country) to the true, uninflated coeff[item] * y_hh total — i.e. use the
+  # L-trace only as a domestic/foreign *share*, applied to the real total.
   flow_total = matrix(0, nrow = nrreg, ncol = nrreg)
   for (k in seq_len(nrcom)) {
     rows_k = seq(k, by = nrcom, length.out = nrreg)  # item k's row in every country block
     D_k = D[, rows_k]                                # producer p x y_hh-origin i
     Y_k = as.matrix(y_hh[rows_k, ])                  # y_hh-origin i x consumer j
-    flow_total = flow_total + D_k %*% Y_k
+
+    M_k = D_k %*% Y_k                    # producer p x consumer j, L-traced (inflated)
+    total_trace_k = colSums(M_k)         # inflated total per consumer j
+    true_total_k  = coeff[rows_k[1]] * colSums(Y_k)  # true (uninflated) total per consumer j
+
+    ratio_k = true_total_k / total_trace_k
+    ratio_k[!is.finite(ratio_k)] = 0
+
+    flow_total = flow_total + sweep(M_k, 2, ratio_k, `*`)
   }
 
   rownames(flow_total) = colnames(flow_total) = regions$iso3c
