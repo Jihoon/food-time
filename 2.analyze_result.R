@@ -74,11 +74,11 @@ l_nonfood_country = lapply(fp_nonfood, agg_country_footprint)
 
 # Validate: sum(l_food_country[[i]]) == sum(fp_food[[i]])
 
-# Validate: find the ten biggest cell from l_food_country[[2]] and check source and destination.
-find_top_cells(l_food_country[[2]], matrix_name = names(l_food_country)[2])
-find_top_cells(l_food_country[[3]], matrix_name = names(l_food_country)[3])
-find_top_cells(l_nonfood_country[[2]], matrix_name = names(l_nonfood_country)[2])
-find_top_cells(l_nonfood_country[[3]], matrix_name = names(l_nonfood_country)[3])
+# # Validate: find the ten biggest cell from l_food_country[[2]] and check source and destination.
+# find_top_cells(l_food_country[[2]], matrix_name = names(l_food_country)[2])
+# find_top_cells(l_food_country[[3]], matrix_name = names(l_food_country)[3])
+# find_top_cells(l_nonfood_country[[2]], matrix_name = names(l_nonfood_country)[2])
+# find_top_cells(l_nonfood_country[[3]], matrix_name = names(l_nonfood_country)[3])
 
 
 
@@ -151,6 +151,10 @@ X_imp = FABIO_L %*% Y_imp  # embodied production feeding each country's imported
 
 fp_domcons = compute_footprints(X_dom)
 fp_impcons = compute_footprints(X_imp)
+
+# Save the results
+saveRDS(fp_domcons, file = paste0("data/fp_domcons_", year, ".rds"))
+saveRDS(fp_impcons, file = paste0("data/fp_impcons_", year, ".rds"))
 
 l_food_country_domcons    = lapply(fp_domcons$food,    agg_country_footprint)
 l_food_country_impcons    = lapply(fp_impcons$food,    agg_country_footprint)
@@ -1508,7 +1512,7 @@ p_mosaic_combined = (p_mosaic | plot_spacer() | p_mosaic_energy) +
   theme(legend.position = "bottom")
 print(p_mosaic_combined)
 
-ggsave("results/protein_mosaic_selected_combined.pdf", p_mosaic_combined, width = 27, height = 11)
+ggsave("results/protein_mosaic_selected_combined update.pdf", p_mosaic_combined, width = 27, height = 11)
 
 # Same mosaic, but for every directly-modeled (non-RoW) country instead of the six selected ones
 mosaic_isos_nonrow = setdiff(regions$iso3c, row_countries)
@@ -1628,7 +1632,7 @@ p_mosaic_nonrow_energy = ggplot(df_mosaic_nonrow_energy) +
         axis.text = element_text(size = 6))
 print(p_mosaic_nonrow_energy)
 
-ggsave("results/protein_energy_mosaic_nonrow.pdf", p_mosaic_nonrow_energy,
+ggsave("results/protein_energy_mosaic_nonrow update.pdf", p_mosaic_nonrow_energy,
        width = 24, height = ceiling(length(mosaic_isos_nonrow) / 7) * 3.2, limitsize = FALSE)
 
 # Same protein conversion factor comparison (domestic vs. import), but for the five
