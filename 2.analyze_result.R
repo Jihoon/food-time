@@ -7,25 +7,39 @@
 l_int_d <- readRDS(file = paste0("data/FABIO_exio_satellites_food_", year, ".rds"))
 l_int_i <- readRDS(file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
 
-# Footprint summed at the FABIO country level
-fp_food <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% FABIO_x_hh)
-
 n_nf = length(exio_nonfood_sectors) # EXIO non-food sectors
-# Footprint for non-food sectors is calculated by multiplying the intensity matrix 
-# (in the same dim as satellite (32725x23001)) with the FABIO_x_hh vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
 
-fp_nonfood <- lapply(l_int_i, function(d) {
-  fp_list <- vector("list", nrreg)
-  for (i in 1:nrreg) {
-    print(paste("Processing region", i, "of", nrreg))
-    A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
-    # Build B_i as block diagonal: each column k gets FABIO_x_hh commodities for region k, source i
-    B_i <- Matrix::Diagonal(x = as.vector(FABIO_x_hh[, i])) %*% 
-      kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
-    fp_list[[i]] <- A_i %*% B_i
-  }
-  do.call(rbind, fp_list) %>% as("CsparseMatrix")
-})
+# Compute food-sector (direct) and non-food-sector (indirect) footprints for
+# a given embodied-production matrix X (23001 x 187, rows = producer
+# country/product, columns = consuming country). Used both for the full
+# FABIO_x_hh (below) and, further down, for the domestic-/import-consumption
+# restricted variants (X_dom/X_imp) that split effort by whether it feeds
+# domestically- or internationally-traded final food products.
+compute_footprints <- function(X) {
+  fp_food_X <- lapply(l_int_d, function(d) Matrix::Diagonal(x=d) %*% X)
+
+  # Footprint for non-food sectors is calculated by multiplying the intensity matrix
+  # (in the same dim as satellite (32725x23001)) with the X vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
+  fp_nonfood_X <- lapply(l_int_i, function(d) {
+    fp_list <- vector("list", nrreg)
+    for (i in 1:nrreg) {
+      print(paste("Processing region", i, "of", nrreg))
+      A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
+      # Build B_i as block diagonal: each column k gets X commodities for region k, source i
+      B_i <- Matrix::Diagonal(x = as.vector(X[, i])) %*%
+        kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
+      fp_list[[i]] <- A_i %*% B_i
+    }
+    do.call(rbind, fp_list) %>% as("CsparseMatrix")
+  })
+
+  list(food = fp_food_X, nonfood = fp_nonfood_X)
+}
+
+# Footprint summed at the FABIO country level
+fp_res <- compute_footprints(FABIO_x_hh)
+fp_food <- fp_res$food
+fp_nonfood <- fp_res$nonfood
 
 # Save the results
 saveRDS(fp_food, file = paste0("data/footprint_food_", year, ".rds"))
@@ -60,11 +74,11 @@ l_nonfood_country = lapply(fp_nonfood, agg_country_footprint)
 
 # Validate: sum(l_food_country[[i]]) == sum(fp_food[[i]])
 
-# Validate: find the ten biggest cell from l_food_country[[2]] and check source and destination.
-find_top_cells(l_food_country[[2]], matrix_name = names(l_food_country)[2])
-find_top_cells(l_food_country[[3]], matrix_name = names(l_food_country)[3])
-find_top_cells(l_nonfood_country[[2]], matrix_name = names(l_nonfood_country)[2])
-find_top_cells(l_nonfood_country[[3]], matrix_name = names(l_nonfood_country)[3])
+# # Validate: find the ten biggest cell from l_food_country[[2]] and check source and destination.
+# find_top_cells(l_food_country[[2]], matrix_name = names(l_food_country)[2])
+# find_top_cells(l_food_country[[3]], matrix_name = names(l_food_country)[3])
+# find_top_cells(l_nonfood_country[[2]], matrix_name = names(l_nonfood_country)[2])
+# find_top_cells(l_nonfood_country[[3]], matrix_name = names(l_nonfood_country)[3])
 
 
 
@@ -99,6 +113,91 @@ for (i in names(summary_food[2:3])) {
   summary_food[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food[[i]]
   summary_nonfood[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood[[i]]
 }
+
+
+
+#### 1.3. Domestic-effort vs. import-effort within domestic/import protein consumption ####
+
+# summary_food/summary_nonfood above split effort by *where the work happened*
+# (domestic_per_capita = producer country == consumer country), independent of
+# whether the food product the work is embodied in was itself domestically-
+# traded or imported (per FABIO_y_hh). That means "domestic" here doesn't line
+# up with FABIO_y_hh's "domestic protein": e.g. labor spent domestically
+# processing an imported raw ingredient counts as "domestic" above, blurring
+# together two different things.
+#
+# Split FABIO_y_hh itself first, by whether the final good was domestically-
+# traded (Y_dom) or imported (Y_imp) — its existing diagonal/off-diagonal
+# structure, nothing new — then trace *each* piece separately through
+# FABIO_L and the same intensities used above. This gives, for each country's
+# domestically-traded food consumption and (separately) its imported food
+# consumption, a further domestic-effort/import-effort split — matched
+# exactly to FABIO_y_hh's own domestic/import split, since it's the same
+# consumption slice on both sides. Because Y_dom + Y_imp = FABIO_y_hh exactly
+# and FABIO_L is linear, the four resulting matrices sum back to
+# l_food_country/l_nonfood_country exactly (see TEST below).
+row_country_idx = rep(seq_len(nrreg), each = nrcom)  # producing-country index for each FABIO_y_hh row
+
+y_hh_t = as(FABIO_y_hh, "TsparseMatrix")
+is_domestic_flow = row_country_idx[y_hh_t@i + 1] == (y_hh_t@j + 1)
+
+Y_dom = Matrix::sparseMatrix(i = y_hh_t@i[is_domestic_flow] + 1, j = y_hh_t@j[is_domestic_flow] + 1,
+                             x = y_hh_t@x[is_domestic_flow], dims = dim(FABIO_y_hh))
+Y_imp = Matrix::sparseMatrix(i = y_hh_t@i[!is_domestic_flow] + 1, j = y_hh_t@j[!is_domestic_flow] + 1,
+                             x = y_hh_t@x[!is_domestic_flow], dims = dim(FABIO_y_hh))
+
+X_dom = FABIO_L %*% Y_dom  # embodied production feeding each country's domestically-traded food consumption
+X_imp = FABIO_L %*% Y_imp  # embodied production feeding each country's imported food consumption
+
+fp_domcons = compute_footprints(X_dom)
+fp_impcons = compute_footprints(X_imp)
+
+# Save the results
+saveRDS(fp_domcons, file = paste0("data/fp_domcons_", year, ".rds"))
+saveRDS(fp_impcons, file = paste0("data/fp_impcons_", year, ".rds"))
+
+l_food_country_domcons    = lapply(fp_domcons$food,    agg_country_footprint)
+l_food_country_impcons    = lapply(fp_impcons$food,    agg_country_footprint)
+l_nonfood_country_domcons = lapply(fp_domcons$nonfood, agg_country_footprint)
+l_nonfood_country_impcons = lapply(fp_impcons$nonfood, agg_country_footprint)
+
+# TEST: for each metric, l_food_country_domcons[[m]] + l_food_country_impcons[[m]] ~ l_food_country[[m]]
+#       (and likewise for nonfood)
+
+summary_food_domcons    = lapply(l_food_country_domcons,    country_summary)
+summary_food_impcons    = lapply(l_food_country_impcons,    country_summary)
+summary_nonfood_domcons = lapply(l_nonfood_country_domcons, country_summary)
+summary_nonfood_impcons = lapply(l_nonfood_country_impcons, country_summary)
+
+for (i in names(summary_food_domcons[2:3])) {
+  summary_food_domcons[[i]]    %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food_domcons[[i]]
+  summary_food_impcons[[i]]    %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_food_impcons[[i]]
+  summary_nonfood_domcons[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood_domcons[[i]]
+  summary_nonfood_impcons[[i]] %>% mutate(across(ends_with("per_capita"), ~ .x / 365)) -> summary_nonfood_impcons[[i]]
+}
+
+# Tidy 8-category table: {domestic, import} protein-consumption bucket x
+# {food, non-food} sector x {domestic, import} effort-origin, per country x
+# metric (hr_m/hr_f/en). Bar widths (protein supply) should use the existing
+# y_hh-based domestic/import protein totals unchanged; this table only
+# supplies the height-stacking within each protein bucket.
+effort_consumption_df = bind_rows(
+  bind_rows(lapply(names(summary_food_domcons), function(m)
+    summary_food_domcons[[m]] %>% mutate(type = m, sector = "food", protein_source = "domestic"))),
+  bind_rows(lapply(names(summary_food_impcons), function(m)
+    summary_food_impcons[[m]] %>% mutate(type = m, sector = "food", protein_source = "import"))),
+  bind_rows(lapply(names(summary_nonfood_domcons), function(m)
+    summary_nonfood_domcons[[m]] %>% mutate(type = m, sector = "non-food", protein_source = "domestic"))),
+  bind_rows(lapply(names(summary_nonfood_impcons), function(m)
+    summary_nonfood_impcons[[m]] %>% mutate(type = m, sector = "non-food", protein_source = "import")))
+) %>%
+  select(country, type, sector, protein_source, domestic_per_capita, import_per_capita) %>%
+  pivot_longer(cols = c(domestic_per_capita, import_per_capita),
+               names_to = "effort_origin", values_to = "per_capita_value") %>%
+  mutate(effort_origin = ifelse(effort_origin == "domestic_per_capita", "domestic", "import"),
+         is_row = country %in% FABIO_reg$ISO[grepl("RoW", FABIO_reg$EXIOBASE)])
+
+
 
 # Stack vertically all elements in each list after adding a column "type" filled with the name the element
 summary_food_df = bind_rows(lapply(names(summary_food),
@@ -662,7 +761,7 @@ summary_time_kcal = summary_food_df_long_with_ghd %>%
   select(country, type, cat, footprint_type, per_capita_value) %>%
   # pivot_wider(names_from = footprint_type, values_from = per_capita_value) %>%
   left_join(summary_kcal_df_long %>% select(country, cat, footprint_type, per_capita_value),
-              # pivot_wider(names_from = footprint_type, values_from = per_capita_value), 
+              # pivot_wider(names_from = footprint_type, values_from = per_capita_value),
             by = c("country", "cat"), suffix = c("_time", "_kcal")) %>% ungroup() %>%
   mutate(hr_per_2000kcal = per_capita_value_time / per_capita_value_kcal * 2e3)
 
@@ -1246,12 +1345,21 @@ p_select_combined = (p_select_labor_energy / p_select_kcal_protein) +
 # points at the mosaic/marimekko version instead.
 ggsave("results/selected_country_bars.pdf", p_select_combined, width = 15, height = 10)
 
-# Marimekko-style mosaic: one facet per country, four rectangles (Domestic/Import x
-# food-sector/non-food-sector). Rectangle width = protein supply (g/cap/day) for that
-# flow (domestic or import); each x-span is split into two STACKED rectangles (food
-# at bottom, non-food on top). Height = time-conversion factor (hr / g protein) for
-# that sector, so rectangle AREA = total hours/cap/day spent on that sector x flow.
+# Marimekko-style mosaic: one facet per country, two x-spans (Domestic/Import
+# protein, width = protein supply g/cap/day for that y_hh-based bucket, see
+# pro_width below), each split into four STACKED rectangles: food/non-food
+# sector x domestic/import effort-origin (from effort_consumption_df, section
+# 1.3 above — the domestic-effort/import-effort split computed on the *same*
+# y_hh-defined consumption slice as the bucket it sits in, unlike the
+# footprint_type-matched join this mosaic used before). Height = conversion
+# factor (effort / protein for that bucket), so rectangle AREA = per-capita
+# effort for that sector x effort-origin x bucket.
 mosaic_isos = c("USA", "FRA", "AUS", "CHN", "IDN", "IND", "BRA", "ZAF")
+
+mosaic_fill_levels = c("food | Domestic effort", "food | Import effort",
+                       "non-food | Domestic effort", "non-food | Import effort")
+mosaic_fill_colors = c("food | Domestic effort" = "#4e9af1", "food | Import effort" = "#91c4f8",
+                       "non-food | Domestic effort" = "#f1884e", "non-food | Import effort" = "#f8ba91")
 
 pro_mosaic = summary_pro_df_long %>%
   filter(footprint_type %in% c("domestic_per_capita", "import_per_capita"),
@@ -1270,14 +1378,11 @@ pro_width = pro_mosaic %>%
   ungroup() %>%
   select(country, footprint_type, source, xmin, xmax, g_protein_per_cap_day)
 
-hr_mosaic_sector = bind_rows(
-  summary_food_df_long %>% mutate(sector = "food"),
-  summary_nonfood_df_long %>% mutate(sector = "non-food")
-) %>%
-  filter(type %in% c("hr_m", "hr_f"), footprint_type %in% c("domestic_per_capita", "import_per_capita"),
-         country %in% mosaic_isos) %>%
-  mutate(country = as.character(country)) %>%
-  group_by(country, footprint_type, sector) %>%
+hr_mosaic_sector = effort_consumption_df %>%
+  filter(type %in% c("hr_m", "hr_f"), country %in% mosaic_isos) %>%
+  mutate(country = as.character(country),
+         footprint_type = ifelse(protein_source == "domestic", "domestic_per_capita", "import_per_capita")) %>%
+  group_by(country, footprint_type, sector, effort_origin) %>%
   summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
 
 df_mosaic = hr_mosaic_sector %>%
@@ -1285,10 +1390,9 @@ df_mosaic = hr_mosaic_sector %>%
   drop_na() %>%
   mutate(min_per_g = hr_per_cap_day * 60 / g_protein_per_cap_day,
          sector = factor(sector, levels = c("food", "non-food")),
-         fill_grp = factor(paste(source, sector, sep = " | "),
-                           levels = c("Domestic | food", "Domestic | non-food",
-                                      "Import | food", "Import | non-food"))) %>%
-  arrange(country, source, sector) %>%
+         effort_label = ifelse(effort_origin == "domestic", "Domestic effort", "Import effort"),
+         fill_grp = factor(paste(sector, effort_label, sep = " | "), levels = mosaic_fill_levels)) %>%
+  arrange(country, source, sector, effort_label) %>%
   group_by(country, source) %>%
   mutate(ymax = cumsum(min_per_g),
          ymin = ymax - min_per_g) %>%
@@ -1322,9 +1426,7 @@ p_mosaic = ggplot(df_mosaic) +
   geom_text(data = vline_df, aes(x = protein_max, y = Inf, label = "USA"),
             color = "black", size = 4, fontface = "bold", hjust = 1.1, vjust = 1.5) +
   facet_wrap(~country, ncol = 3) +
-  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
-                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
-                     name = "") +
+  scale_fill_manual(values = mosaic_fill_colors, name = "") +
   labs(x = "Protein supply (g/cap/day)", y = "Time conversion factor (min / g protein)",
        title = "Daily time embodied in domestic/imported protein provisioning") +
   theme_minimal() +
@@ -1341,25 +1443,21 @@ print(p_mosaic)
 # (for visual alignment), y-axis = MJ / g protein. The rectangle's literal geometric
 # area is technically GJ/day, but the printed label deliberately shows the annualized
 # GJ/yr figure instead, for readability.
-en_mosaic_sector = bind_rows(
-  summary_food_df_long %>% mutate(sector = "food"),
-  summary_nonfood_df_long %>% mutate(sector = "non-food")
-) %>%
-  filter(type == "en", footprint_type %in% c("domestic_per_capita", "import_per_capita"),
-         country %in% mosaic_isos) %>%
-  mutate(country = as.character(country)) %>%
-  group_by(country, footprint_type, sector) %>%
-  summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
+en_mosaic_sector = effort_consumption_df %>%
+  filter(type == "en", country %in% mosaic_isos) %>%
+  mutate(country = as.character(country),
+         footprint_type = ifelse(protein_source == "domestic", "domestic_per_capita", "import_per_capita"),
+         gj_per_cap_day = per_capita_value / 365 / 1000) %>%
+  select(country, footprint_type, sector, effort_origin, gj_per_cap_day)
 
 df_mosaic_energy = en_mosaic_sector %>%
   left_join(pro_width, by = c("country", "footprint_type")) %>%
   drop_na() %>%
   mutate(mj_per_g = gj_per_cap_day * 1000 / g_protein_per_cap_day,
          sector = factor(sector, levels = c("food", "non-food")),
-         fill_grp = factor(paste(source, sector, sep = " | "),
-                           levels = c("Domestic | food", "Domestic | non-food",
-                                      "Import | food", "Import | non-food"))) %>%
-  arrange(country, source, sector) %>%
+         effort_label = ifelse(effort_origin == "domestic", "Domestic effort", "Import effort"),
+         fill_grp = factor(paste(sector, effort_label, sep = " | "), levels = mosaic_fill_levels)) %>%
+  arrange(country, source, sector, effort_label) %>%
   group_by(country, source) %>%
   mutate(ymax = cumsum(mj_per_g),
          ymin = ymax - mj_per_g) %>%
@@ -1391,9 +1489,7 @@ p_mosaic_energy = ggplot(df_mosaic_energy) +
   geom_text(data = vline_df_energy, aes(x = protein_max_energy, y = Inf, label = "USA"),
             color = "black", size = 4, fontface = "bold", hjust = 1.1, vjust = 1.5) +
   facet_wrap(~country, ncol = 3) +
-  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
-                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
-                     name = "") +
+  scale_fill_manual(values = mosaic_fill_colors, name = "") +
   labs(x = "Protein supply (g/cap/day)", y = "Energy conversion factor (MJ / g protein)",
        title = "Yearly energy embodied in domestic/imported protein provisioning") +
   theme_minimal() +
@@ -1416,7 +1512,7 @@ p_mosaic_combined = (p_mosaic | plot_spacer() | p_mosaic_energy) +
   theme(legend.position = "bottom")
 print(p_mosaic_combined)
 
-ggsave("results/protein_mosaic_selected_combined.pdf", p_mosaic_combined, width = 27, height = 11)
+ggsave("results/protein_mosaic_selected_combined update.pdf", p_mosaic_combined, width = 27, height = 11)
 
 # Same mosaic, but for every directly-modeled (non-RoW) country instead of the six selected ones
 mosaic_isos_nonrow = setdiff(regions$iso3c, row_countries)
@@ -1447,14 +1543,11 @@ pro_width_nonrow = pro_mosaic_nonrow %>%
   ungroup() %>%
   select(country, footprint_type, source, xmin, xmax, g_protein_per_cap_day)
 
-hr_mosaic_nonrow_sector = bind_rows(
-  summary_food_df_long %>% mutate(sector = "food"),
-  summary_nonfood_df_long %>% mutate(sector = "non-food")
-) %>%
-  filter(type %in% c("hr_m", "hr_f"), footprint_type %in% c("domestic_per_capita", "import_per_capita"),
-         country %in% mosaic_isos_nonrow) %>%
-  mutate(country = as.character(country)) %>%
-  group_by(country, footprint_type, sector) %>%
+hr_mosaic_nonrow_sector = effort_consumption_df %>%
+  filter(type %in% c("hr_m", "hr_f"), country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country),
+         footprint_type = ifelse(protein_source == "domestic", "domestic_per_capita", "import_per_capita")) %>%
+  group_by(country, footprint_type, sector, effort_origin) %>%
   summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
 
 df_mosaic_nonrow = hr_mosaic_nonrow_sector %>%
@@ -1462,10 +1555,9 @@ df_mosaic_nonrow = hr_mosaic_nonrow_sector %>%
   drop_na() %>%
   mutate(hr_per_g = hr_per_cap_day / g_protein_per_cap_day,
          sector = factor(sector, levels = c("food", "non-food")),
-         fill_grp = factor(paste(source, sector, sep = " | "),
-                           levels = c("Domestic | food", "Domestic | non-food",
-                                      "Import | food", "Import | non-food"))) %>%
-  arrange(country, source, sector) %>%
+         effort_label = ifelse(effort_origin == "domestic", "Domestic effort", "Import effort"),
+         fill_grp = factor(paste(sector, effort_label, sep = " | "), levels = mosaic_fill_levels)) %>%
+  arrange(country, source, sector, effort_label) %>%
   group_by(country, source) %>%
   mutate(ymax = cumsum(hr_per_g),
          ymin = ymax - hr_per_g) %>%
@@ -1484,9 +1576,7 @@ p_mosaic_nonrow = ggplot(df_mosaic_nonrow) +
   geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_min, color = I(label_col)),
             size = 3, fontface = "bold", na.rm = TRUE) +
   facet_wrap(~country, ncol = 7) +
-  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
-                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
-                     name = "") +
+  scale_fill_manual(values = mosaic_fill_colors, name = "") +
   labs(x = "Protein supply (g/cap/day)", y = "Time conversion factor (hr / g protein)",
        title = "Daily time embodied in domestic/imported protein provisioning") +
   theme_minimal() +
@@ -1500,25 +1590,21 @@ ggsave("results/protein_time_mosaic_nonrow.pdf", p_mosaic_nonrow,
 
 # Energy counterpart of the non-RoW mosaic above: same daily protein width as the time
 # mosaic (for alignment), y-axis = MJ / g protein, label deliberately shows annual GJ/yr.
-en_mosaic_nonrow_sector = bind_rows(
-  summary_food_df_long %>% mutate(sector = "food"),
-  summary_nonfood_df_long %>% mutate(sector = "non-food")
-) %>%
-  filter(type == "en", footprint_type %in% c("domestic_per_capita", "import_per_capita"),
-         country %in% mosaic_isos_nonrow) %>%
-  mutate(country = as.character(country)) %>%
-  group_by(country, footprint_type, sector) %>%
-  summarise(gj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365 / 1000, .groups = "drop")
+en_mosaic_nonrow_sector = effort_consumption_df %>%
+  filter(type == "en", country %in% mosaic_isos_nonrow) %>%
+  mutate(country = as.character(country),
+         footprint_type = ifelse(protein_source == "domestic", "domestic_per_capita", "import_per_capita"),
+         gj_per_cap_day = per_capita_value / 365 / 1000) %>%
+  select(country, footprint_type, sector, effort_origin, gj_per_cap_day)
 
 df_mosaic_nonrow_energy = en_mosaic_nonrow_sector %>%
   left_join(pro_width_nonrow, by = c("country", "footprint_type")) %>%
   drop_na() %>%
   mutate(mj_per_g = gj_per_cap_day * 1000 / g_protein_per_cap_day,
          sector = factor(sector, levels = c("food", "non-food")),
-         fill_grp = factor(paste(source, sector, sep = " | "),
-                           levels = c("Domestic | food", "Domestic | non-food",
-                                      "Import | food", "Import | non-food"))) %>%
-  arrange(country, source, sector) %>%
+         effort_label = ifelse(effort_origin == "domestic", "Domestic effort", "Import effort"),
+         fill_grp = factor(paste(sector, effort_label, sep = " | "), levels = mosaic_fill_levels)) %>%
+  arrange(country, source, sector, effort_label) %>%
   group_by(country, source) %>%
   mutate(ymax = cumsum(mj_per_g),
          ymin = ymax - mj_per_g) %>%
@@ -1537,9 +1623,7 @@ p_mosaic_nonrow_energy = ggplot(df_mosaic_nonrow_energy) +
   geom_text(aes(x = (xmin + xmax) / 2, y = label_y, label = label_gj, color = I(label_col)),
             size = 3, fontface = "bold", na.rm = TRUE) +
   facet_wrap(~country, ncol = 7) +
-  scale_fill_manual(values = c("Domestic | food" = "#4e9af1", "Domestic | non-food" = "#f1884e",
-                                "Import | food" = "#91c4f8", "Import | non-food" = "#f8ba91"),
-                     name = "") +
+  scale_fill_manual(values = mosaic_fill_colors, name = "") +
   labs(x = "Protein supply (g/cap/day)", y = "Energy conversion factor (MJ / g protein)",
        title = "Yearly energy embodied in domestic/imported protein provisioning") +
   theme_minimal() +
@@ -1548,7 +1632,7 @@ p_mosaic_nonrow_energy = ggplot(df_mosaic_nonrow_energy) +
         axis.text = element_text(size = 6))
 print(p_mosaic_nonrow_energy)
 
-ggsave("results/protein_energy_mosaic_nonrow.pdf", p_mosaic_nonrow_energy,
+ggsave("results/protein_energy_mosaic_nonrow update.pdf", p_mosaic_nonrow_energy,
        width = 24, height = ceiling(length(mosaic_isos_nonrow) / 7) * 3.2, limitsize = FALSE)
 
 # Same protein conversion factor comparison (domestic vs. import), but for the five
