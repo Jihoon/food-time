@@ -2314,6 +2314,58 @@ p_tradeoff_nonfood_econlabor = (p_tradeoff_kcal_nonfood_econlabor | p_tradeoff_p
 
 ggsave(paste0("results/tradeoff_convfac_nonfood_econlabor.pdf"), p_tradeoff_nonfood_econlabor, width = 20, height = 8)
 
+# Domestic tradeoff: total economic labor (food + non-food sectors combined),
+# gender-collapsed — each country is a vertical segment at its (gender-invariant)
+# total economic energy value, running from male hours to female hours of paid
+# labor (food-sector + non-food-sector combined).
+en_domestic_totalecon = bind_rows(summary_food_df_long, summary_nonfood_df_long) %>%
+  filter(type == "en", footprint_type == "domestic_per_capita") %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country) %>%
+  summarise(mj_per_cap_day = sum(per_capita_value, na.rm = TRUE) / 365, .groups = "drop")
+
+tradeoff_pcap_totalecon = bind_rows(summary_food_df_long, summary_nonfood_df_long) %>%
+  filter(type %in% c("hr_m", "hr_f"), footprint_type == "domestic_per_capita") %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(en_domestic_totalecon, by = "country") %>%
+  inner_join(pro_domestic, by = "country") %>%
+  left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
+  drop_na() %>%
+  filter(!as.character(country) %in% row_countries)
+
+tradeoff_protein_totalecon = tradeoff_pcap_totalecon %>%
+  mutate(mj_per_50g_protein = mj_per_cap_day / g_protein_per_cap_day * 50,
+         hr_per_50g_protein = hr_per_cap_day  / g_protein_per_cap_day * 50)
+
+label_tradeoff_protein_totalecon_gender = tradeoff_protein_totalecon %>%
+  group_by(country) %>%
+  slice_max(hr_per_50g_protein, n = 1, with_ties = FALSE)
+
+p_tradeoff_protein_totalecon_gender_range = ggplot(
+  tradeoff_protein_totalecon,
+  aes(x = mj_per_50g_protein, y = hr_per_50g_protein)) +
+  geom_line(aes(group = country), color = "grey60", linewidth = 0.6) +
+  geom_point(aes(color = type, size = g_protein_per_cap_day), alpha = 0.85) +
+  ggrepel::geom_text_repel(
+    data = label_tradeoff_protein_totalecon_gender,
+    aes(label = country), size = 3.5, max.overlaps = 20, show.legend = FALSE) +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_size_continuous(range = c(1, 8)) +
+  labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
+       color = "Gender", size = "g protein/cap/day",
+       title = paste0("Energy vs. time to provision 50 g protein (", year, ") — Total econ. labor (food + non-food), by gender")) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        axis.title   = element_text(size = rel(1.4)),
+        legend.text  = element_text(size = rel(1.1)),
+        legend.title = element_text(size = rel(1.1)))
+
+ggsave("results/tradeoff_convfac_protein_totalecon_gender_range.pdf",
+       p_tradeoff_protein_totalecon_gender_range, width = 14, height = 9)
+
 
 # library(ggplot2)
 # # Labor hours
