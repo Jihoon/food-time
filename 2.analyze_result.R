@@ -20,18 +20,57 @@ compute_footprints <- function(X) {
 
   # Footprint for non-food sectors is calculated by multiplying the intensity matrix
   # (in the same dim as satellite (32725x23001)) with the X vector (23001x187) to get a matrix of dimension (32725x187), and then summing every 187 rows to get a matrix of dimension (187x187) where rows are origin countries and columns are target countries.
-  fp_nonfood_X <- lapply(l_int_i, function(d) {
-    fp_list <- vector("list", nrreg)
-    for (i in 1:nrreg) {
-      print(paste("Processing region", i, "of", nrreg))
-      A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
-      # Build B_i as block diagonal: each column k gets X commodities for region k, source i
-      B_i <- Matrix::Diagonal(x = as.vector(X[, i])) %*%
-        kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
-      fp_list[[i]] <- A_i %*% B_i
-    }
-    do.call(rbind, fp_list) %>% as("CsparseMatrix")
-  })
+  #
+  # BUG (found via code review, see branch discussion): the loop below does NOT do
+  # the general multiplication the comment above describes. l_int_i[[k]] (= d) is a
+  # per-tonne-of-commodity-r intensity, fully general across origin country of the
+  # non-food effort (row, via EXIO_L's cross-country linkages) and producer country
+  # of commodity r (baked into column r) -- see 1.1.mrio_convert_indirect.R. It is
+  # structurally the same kind of object as l_int_d (used above via a plain
+  # Diagonal(x=d) %*% X), and the correct general footprint is likewise just
+  # `d %*% X` (rows = non-food effort's origin country, columns = consuming
+  # country j, matching country_summary()'s domestic/export/import formula).
+  #
+  # Instead, the loop forces the row-block index i (origin region of the non-food
+  # industry, via A_i <- d[block i,]) to also select the SAME i as the consuming
+  # country (via B_i, built from X[,i] only -- never X[,k] for k != i), then
+  # regroups the leftover axis by the FOOD COMMODITY'S PRODUCER country instead of
+  # leaving it as the general consuming-country axis. Concretely, B_i just scatters
+  # the vector X[,i] into a 23001x187 matrix, zero except in the column matching
+  # each row's own producer country (a one-hot "group by producer country" trick),
+  # so A_i %*% B_i computes, for consumer i only: [s, producer q] = sum over
+  # commodity rows r produced in q of A_i[s,r] * X[r,i].
+  #
+  # Net effect on country_summary()'s domestic/export/import split of the
+  # resulting matrix:
+  #  - domestic (diag[i,i]): narrower than intended -- only captures the
+  #    triple-match case (non-food origin = food producer = food consumer = i),
+  #    not "non-food effort in i embodied in i's total consumption, any food
+  #    producer" (likely understated).
+  #  - export (rowSums - diag): for fixed consumer i, sums over producer q != i
+  #    -- that's "foreign-grown food consumed at home," an import concept
+  #    mislabeled as export.
+  #  - import (colSums - diag): for fixed producer q, sums across DIFFERENT
+  #    countries' own-consumption buckets that happen to use food from q -- not
+  #    q's import of anything; mixes unrelated countries together.
+  #
+  # This does not affect the food-sector branch above (fp_food_X), which already
+  # uses the full X and is fine. Fixed below by replacing the loop with the
+  # direct, general `d %*% X` -- old code kept commented out for reference.
+  #
+  # fp_nonfood_X <- lapply(l_int_i, function(d) {
+  #   fp_list <- vector("list", nrreg)
+  #   for (i in 1:nrreg) {
+  #     print(paste("Processing region", i, "of", nrreg))
+  #     A_i <- d[((i-1)*n_nf + 1):(i*n_nf), ]
+  #     # Build B_i as block diagonal: each column k gets X commodities for region k, source i
+  #     B_i <- Matrix::Diagonal(x = as.vector(X[, i])) %*%
+  #       kronecker(Matrix::Diagonal(nrreg), Matrix::Matrix(1, nrcom, 1))
+  #     fp_list[[i]] <- A_i %*% B_i
+  #   }
+  #   do.call(rbind, fp_list) %>% as("CsparseMatrix")
+  # })
+  fp_nonfood_X <- lapply(l_int_i, function(d) (d %*% X) %>% as("CsparseMatrix"))
 
   list(food = fp_food_X, nonfood = fp_nonfood_X)
 }
