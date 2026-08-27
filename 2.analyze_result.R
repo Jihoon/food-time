@@ -2430,6 +2430,63 @@ p_tradeoff_protein_totalecon_domestic_effort = ggplot(
 ggsave("results/tradeoff_convfac_protein_totalecon_domestic_effort_gender_range.pdf",
        p_tradeoff_protein_totalecon_domestic_effort, width = 20, height = 9)
 
+# Same as above, but food sector only (no non-food sector labor/energy).
+effort_foodecon_domestic = effort_consumption_df %>%
+  filter(protein_source == "domestic", sector == "food") %>%
+  mutate(country = as.character(country)) %>%
+  group_by(country, type, effort_origin, is_row) %>%
+  summarise(per_capita_value = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+
+en_effort_foodecon_domestic = effort_foodecon_domestic %>%
+  filter(type == "en") %>%
+  select(country, effort_origin, mj_per_cap_day = per_capita_value) %>%
+  mutate(mj_per_cap_day = mj_per_cap_day / 365)
+
+tradeoff_pcap_foodecon_domestic_effort = effort_foodecon_domestic %>%
+  filter(type %in% c("hr_m", "hr_f")) %>%
+  select(country, type, effort_origin, hr_per_cap_day = per_capita_value) %>%
+  left_join(en_effort_foodecon_domestic, by = c("country", "effort_origin")) %>%
+  inner_join(pro_domestic, by = "country") %>%
+  left_join(regions %>% select(iso3c, continent), by = c("country" = "iso3c")) %>%
+  drop_na() %>%
+  filter(!country %in% row_countries)
+
+tradeoff_protein_foodecon_domestic_effort = tradeoff_pcap_foodecon_domestic_effort %>%
+  mutate(mj_per_50g_protein = mj_per_cap_day / g_protein_per_cap_day * 50,
+         hr_per_50g_protein = hr_per_cap_day  / g_protein_per_cap_day * 50,
+         effort_label = factor(ifelse(effort_origin == "domestic", "Domestic effort", "Import effort"),
+                                levels = c("Domestic effort", "Import effort")))
+
+label_tradeoff_protein_foodecon_domestic_effort = tradeoff_protein_foodecon_domestic_effort %>%
+  group_by(country, effort_label) %>%
+  slice_max(hr_per_50g_protein, n = 1, with_ties = FALSE)
+
+p_tradeoff_protein_foodecon_domestic_effort = ggplot(
+  tradeoff_protein_foodecon_domestic_effort,
+  aes(x = mj_per_50g_protein, y = hr_per_50g_protein)) +
+  geom_line(aes(group = country), color = "grey60", linewidth = 0.6) +
+  geom_point(aes(color = type, size = g_protein_per_cap_day), alpha = 0.85) +
+  ggrepel::geom_text_repel(
+    data = label_tradeoff_protein_foodecon_domestic_effort,
+    aes(label = country), size = 3.5, max.overlaps = 20, show.legend = FALSE) +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_size_continuous(range = c(1, 8)) +
+  facet_wrap(~effort_label, nrow = 1, scales = "free") +
+  labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
+       color = "Gender", size = "g protein/cap/day",
+       title = paste0("Energy vs. time per 50 g of domestically-consumed protein (", year,
+                       ") — Food-sector econ. labor, by effort origin")) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        strip.text   = element_text(size = rel(1.3)),
+        axis.title   = element_text(size = rel(1.4)),
+        legend.text  = element_text(size = rel(1.1)),
+        legend.title = element_text(size = rel(1.1)))
+
+ggsave("results/tradeoff_convfac_protein_foodecon_domestic_effort_gender_range.pdf",
+       p_tradeoff_protein_foodecon_domestic_effort, width = 20, height = 9)
+
 
 # library(ggplot2)
 # # Labor hours
