@@ -637,8 +637,37 @@ b = summary_food_df_long_with_ghd %>%
   filter(!is_row) %>%
   mutate(country = factor(country, levels = direct_ord))
 
-p_hr_f_direct = plot_countries(b %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
-p_hr_m_direct = plot_countries(b %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
+# Add non-food-sector domestic/export time (labor in packaging, transport, etc.
+# that supports food provisioning) into the same bars, and non-food import time
+# as an additional negative bar alongside food import. footprint_type gets a
+# "_nf" suffix so plot_countries() can color and stack/negate it separately
+# from the matching food component.
+b_nonfood = summary_nonfood_df_long %>%
+  filter(!is_row, type %in% c("hr_f", "hr_m")) %>%
+  mutate(country = factor(country, levels = direct_ord),
+         footprint_type = paste0(as.character(footprint_type), "_nf"))
+
+b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type)), b_nonfood) %>%
+  mutate(footprint_type = factor(footprint_type, levels = c(
+    "preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
+    "energy_non.econ", "water_non.econ",
+    "preparation_econ",
+    "domestic_per_capita_nf", "export_per_capita_nf",
+    "domestic_per_capita", "export_per_capita",
+    "import_per_capita_nf", "import_per_capita"
+  )))
+
+# Share y-axis limits between the female/male panels, sized to the combined
+# food + non-food stack (positive) and food + non-food import (negative)
+stack_totals_direct = b_direct %>%
+  mutate(part = ifelse(footprint_type %in% c("import_per_capita", "import_per_capita_nf"), "neg", "pos")) %>%
+  group_by(country, type, part) %>%
+  summarise(total = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+y_max_direct =  max(stack_totals_direct$total[stack_totals_direct$part == "pos"], na.rm = TRUE) * 1.1
+y_min_direct = -max(stack_totals_direct$total[stack_totals_direct$part == "neg"], na.rm = TRUE) * 1.1
+
+p_hr_f_direct = plot_countries(b_direct %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+p_hr_m_direct = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
 
 p_combined_direct = p_hr_f_direct / p_hr_m_direct + plot_layout(guides = "collect") & theme(
   legend.position = "top",

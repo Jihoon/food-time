@@ -268,13 +268,22 @@ plot_countries <- function(df, ylabel, maintitle) {
   # print(name_dom, name_exp, name_imp)
   print(footprint_types)
 
-  c_scheme = setNames(c("#08519c", "#3182bd", "#6baed6"), c(name_dom, name_exp, name_imp))
+  # Food footprint_types are plain ("domestic_per_capita"); their non-food-sector
+  # counterparts carry a "_nf" suffix ("domestic_per_capita_nf") so a food and a
+  # non-food component can be stacked/negated side by side in the same bar while
+  # staying visually distinguishable (blue family = food, green family = non-food).
+  color_for_sector = function(names, food_color, nonfood_color) {
+    setNames(ifelse(grepl("_nf$", names), nonfood_color, food_color), names)
+  }
+  c_scheme = c(color_for_sector(name_dom, "#08519c", "#31a354"),
+               color_for_sector(name_exp, "#3182bd", "#74c476"),
+               color_for_sector(name_imp, "#6baed6", "#a1d99b"))
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp
     scale_factor = 1
   } else if (df$type[1] %in% c("hr_m", "hr_f")) { # Labor footprint
-    part_negative = "import_per_capita"
+    part_negative = name_imp # all import_per_capita[_nf] categories are plotted as negative bars, stacked
     scale_factor = 1
     # Econ (paid) categories stay in the cool blue family (set above); non-econ
     # (household/unpaid) categories get their own warm yellow-orange-red family,
@@ -298,8 +307,8 @@ plot_countries <- function(df, ylabel, maintitle) {
   pos_type = ifelse(neg_type == "import", "export", "import")
   
   has_row <- "is_row" %in% colnames(df)
-  pos_df  <- df %>% filter(footprint_type != part_negative)
-  neg_df  <- df %>% filter(footprint_type == part_negative)
+  pos_df  <- df %>% filter(!footprint_type %in% part_negative)
+  neg_df  <- df %>% filter(footprint_type %in% part_negative)
 
   if (has_row) {
     g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type, alpha=is_row))
