@@ -589,7 +589,7 @@ p_combined_partial_nonrow[[2]] <- p_combined_partial_nonrow[[2]] +
         axis.ticks.x = element_line())
 print(p_combined_partial_nonrow)
 
-ggsave("results/", p_combined_partial_nonrow, width = 18, height = 12)
+ggsave("results/footprint_partial_countries_nonrow.pdf", p_combined_partial_nonrow, width = 18, height = 12)
 
 # Non-food sector: combined female + male + energy, ordered by non-food female time
 nonfood_ord = (summary_nonfood_df_long %>%
