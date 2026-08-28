@@ -1222,10 +1222,10 @@ plot_continent = function(iso) {
     plot_annotation(title = paste0(iso, " food trade flows by continent (", year, ")"))
 }
 
-# for (iso in c("BRA", "ZAF", "DNK", "KOR")) {
-for (iso in c("USA", "CHN", "IND", "AUT")) {
-  ggsave(paste0("results/", tolower(iso), "_spotlight.pdf"),  plot_spotlight(iso), width = 14, height = 5)
-  ggsave(paste0("results/", tolower(iso), "_continent.pdf"),  plot_continent(iso), width = 12, height = 14)
+for (iso in c("BRA", "ZAF", "DNK", "KOR")) {
+# for (iso in c("USA", "CHN", "IND", "AUT")) {
+  ggsave(paste0("results/", tolower(iso), "_spotlight update.pdf"),  plot_spotlight(iso), width = 14, height = 5)
+  ggsave(paste0("results/", tolower(iso), "_continent update.pdf"),  plot_continent(iso), width = 12, height = 14)
 }
 
 # Combined three-country comparison: absolute footprints + domestic/import shares
@@ -1624,7 +1624,7 @@ p_mosaic_nonrow = ggplot(df_mosaic_nonrow) +
         axis.text = element_text(size = 6))
 print(p_mosaic_nonrow)
 
-ggsave("results/protein_time_mosaic_nonrow.pdf", p_mosaic_nonrow,
+ggsave("results/protein_time_mosaic_nonrow update.pdf", p_mosaic_nonrow,
        width = 24, height = ceiling(length(mosaic_isos_nonrow) / 7) * 3.2, limitsize = FALSE)
 
 # Energy counterpart of the non-RoW mosaic above: same daily protein width as the time
@@ -1874,7 +1874,7 @@ p_tradeoff_protein_econlabor_noneconsize = tradeoff_scatter(
 p_tradeoff_econlabor_noneconsize = (p_tradeoff_kcal_econlabor_noneconsize | p_tradeoff_protein_econlabor_noneconsize) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
 
-ggsave(paste0("results/tradeoff_convfac_econlabor_noneconsize.pdf"), p_tradeoff_econlabor_noneconsize, width = 20, height = 8)
+ggsave(paste0("results/tradeoff_convfac_econlabor_noneconsize update.pdf"), p_tradeoff_econlabor_noneconsize, width = 20, height = 8)
 
 # Protein scatter sized by protein import share: import / (domestic + import)
 protein_import_share = summary_pro_df_long %>%
@@ -2123,9 +2123,9 @@ p_tradeoff_pcap_nonfood_econlabor = tradeoff_scatter(
   "Energy (MJ/cap/day)", "Time (hr/cap/day)", "g protein/cap/day",
   paste0("Energy vs. time per capita (", year, ") — Non-food, Economic"))
 
-ggsave(paste0("results/tradeoff_pcap_econlabor.pdf"),        p_tradeoff_pcap_econlabor,        width = 14, height = 6)
-ggsave(paste0("results/tradeoff_pcap_allwork.pdf"),        p_tradeoff_pcap_allwork,        width = 14, height = 6)
-ggsave(paste0("results/tradeoff_pcap_nonfood_econlabor.pdf"),  p_tradeoff_pcap_nonfood_econlabor,  width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_econlabor update.pdf"),        p_tradeoff_pcap_econlabor,        width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_allwork update.pdf"),        p_tradeoff_pcap_allwork,        width = 14, height = 6)
+ggsave(paste0("results/tradeoff_pcap_nonfood_econlabor update.pdf"),  p_tradeoff_pcap_nonfood_econlabor,  width = 14, height = 6)
 
 # Same as tradeoff_pcap_allwork.pdf, but hard-excluding RoW countries instead of just fading them
 p_tradeoff_pcap_allwork_nonrow = tradeoff_scatter(
@@ -2351,7 +2351,7 @@ p_tradeoff_protein_nonfood_econlabor = tradeoff_scatter(
 p_tradeoff_nonfood_econlabor = (p_tradeoff_kcal_nonfood_econlabor | p_tradeoff_protein_nonfood_econlabor) +
   plot_layout(guides = "collect") & theme(legend.position = "right")
 
-ggsave(paste0("results/tradeoff_convfac_nonfood_econlabor.pdf"), p_tradeoff_nonfood_econlabor, width = 20, height = 8)
+ggsave(paste0("results/tradeoff_convfac_nonfood_econlabor update.pdf"), p_tradeoff_nonfood_econlabor, width = 20, height = 8)
 
 # Domestic tradeoff: total economic labor (food + non-food sectors combined),
 # gender-collapsed — each country is a vertical segment at its (gender-invariant)
@@ -2402,7 +2402,7 @@ p_tradeoff_protein_totalecon_gender_range = ggplot(
         legend.text  = element_text(size = rel(1.1)),
         legend.title = element_text(size = rel(1.1)))
 
-ggsave("results/tradeoff_convfac_protein_totalecon_gender_range.pdf",
+ggsave("results/tradeoff_convfac_protein_totalecon_gender_range update.pdf",
        p_tradeoff_protein_totalecon_gender_range, width = 14, height = 9)
 
 # Same total economic (food + non-food) conversion factors, but for 50 g of
@@ -2466,7 +2466,7 @@ p_tradeoff_protein_totalecon_domestic_effort = ggplot(
         legend.text  = element_text(size = rel(1.1)),
         legend.title = element_text(size = rel(1.1)))
 
-ggsave("results/tradeoff_convfac_protein_totalecon_domestic_effort_gender_range.pdf",
+ggsave("results/tradeoff_convfac_protein_totalecon_domestic_effort_gender_range update.pdf",
        p_tradeoff_protein_totalecon_domestic_effort, width = 20, height = 9)
 
 # Same as above, but food sector only (no non-food sector labor/energy).
@@ -2523,7 +2523,7 @@ p_tradeoff_protein_foodecon_domestic_effort = ggplot(
         legend.text  = element_text(size = rel(1.1)),
         legend.title = element_text(size = rel(1.1)))
 
-ggsave("results/tradeoff_convfac_protein_foodecon_domestic_effort_gender_range.pdf",
+ggsave("results/tradeoff_convfac_protein_foodecon_domestic_effort_gender_range update.pdf",
        p_tradeoff_protein_foodecon_domestic_effort, width = 20, height = 9)
 
 
