@@ -260,8 +260,8 @@ sparsity <- function(mat) {
 
 plot_countries <- function(df, ylabel, maintitle) {
 
-  # Get domestsic/export/import factor names out of df$footprint_type 
-  footprint_types = unique(df$footprint_type)
+  # Get domestsic/export/import factor names out of df$footprint_type
+  footprint_types = as.character(unique(df$footprint_type))
   name_dom = footprint_types[grepl("domestic", footprint_types)]
   name_exp = footprint_types[grepl("export", footprint_types)]
   name_imp = footprint_types[grepl("import", footprint_types)]
@@ -275,9 +275,28 @@ plot_countries <- function(df, ylabel, maintitle) {
   color_for_sector = function(names, food_color, nonfood_color) {
     setNames(ifelse(grepl("_nf$", names), nonfood_color, food_color), names)
   }
+
+  # Import categories disaggregated by continent-of-origin ("import_cont_<Continent>",
+  # optionally suffixed "_nf" for non-food) get one shade per continent -- a blues
+  # ramp for food, a greens ramp for non-food -- instead of the flat single color
+  # used for a plain "import_per_capita" total.
+  import_continents = unique(gsub("_nf$", "", gsub("^import_cont_", "", name_imp[grepl("^import_cont_", name_imp)])))
+  if (length(import_continents) > 0) {
+    pal_food_imp    = setNames(colorRampPalette(RColorBrewer::brewer.pal(9, "Blues")[3:9])(length(import_continents)), import_continents)
+    pal_nonfood_imp = setNames(colorRampPalette(RColorBrewer::brewer.pal(9, "Greens")[3:9])(length(import_continents)), import_continents)
+    imp_scheme = setNames(sapply(name_imp, function(nm) {
+      if (!grepl("^import_cont_", nm)) return(if (grepl("_nf$", nm)) "#a1d99b" else "#6baed6")
+      is_nf = grepl("_nf$", nm)
+      cont  = gsub("_nf$", "", gsub("^import_cont_", "", nm))
+      if (is_nf) pal_nonfood_imp[[cont]] else pal_food_imp[[cont]]
+    }), name_imp)
+  } else {
+    imp_scheme = color_for_sector(name_imp, "#6baed6", "#a1d99b")
+  }
+
   c_scheme = c(color_for_sector(name_dom, "#08519c", "#31a354"),
                color_for_sector(name_exp, "#3182bd", "#74c476"),
-               color_for_sector(name_imp, "#6baed6", "#a1d99b"))
+               imp_scheme)
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp

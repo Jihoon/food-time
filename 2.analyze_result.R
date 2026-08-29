@@ -634,34 +634,74 @@ direct_ord = (summary_food_df_long_with_ghd %>%
   arrange(-d))$country
 
 b = summary_food_df_long_with_ghd %>%
-  filter(!is_row) %>%
+  filter(!is_row, footprint_type != "import_per_capita") %>%
   mutate(country = factor(country, levels = direct_ord))
 
 # Add non-food-sector domestic/export time (labor in packaging, transport, etc.
-# that supports food provisioning) into the same bars, and non-food import time
-# as an additional negative bar alongside food import. footprint_type gets a
-# "_nf" suffix so plot_countries() can color and stack/negate it separately
-# from the matching food component.
+# that supports food provisioning) into the same bars. footprint_type gets a
+# "_nf" suffix so plot_countries() can color and stack it separately from the
+# matching food component. (Non-food import is added below, disaggregated by
+# continent, same as food import.)
 b_nonfood = summary_nonfood_df_long %>%
-  filter(!is_row, type %in% c("hr_f", "hr_m")) %>%
+  filter(!is_row, type %in% c("hr_f", "hr_m"), footprint_type != "import_per_capita") %>%
   mutate(country = factor(country, levels = direct_ord),
          footprint_type = paste0(as.character(footprint_type), "_nf"))
 
-b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type)), b_nonfood) %>%
+# Continent-of-origin breakdown of the import component -----------------------------
+# For each consuming country, split the import total (colSums(mat) - diag(mat)) by the
+# continent of the producing country -- the same continent grouping (regions$continent)
+# and imp_by_cont logic used by make_continent_data()'s single-country spotlight plots,
+# just computed for every country at once instead of one focal iso.
+import_by_continent = function(mat) {
+  cty  = colnames(mat)
+  cont = regions$continent[match(cty, regions$iso3c)]
+
+  bind_rows(lapply(seq_along(cty), function(j) {
+    not_focal = seq_along(cty) != j
+    imp_by_cont = tapply(mat[not_focal, j], cont[not_focal], sum, na.rm = TRUE)
+    data.frame(country = cty[j], continent = names(imp_by_cont), import = as.numeric(imp_by_cont))
+  }))
+}
+
+pop_data_yr = subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population)
+
+# Long df of import_per_capita by continent-of-origin for hr_m/hr_f, in the same units as
+# summary_food_df_long/summary_nonfood_df_long's import_per_capita (M.hr -> hr/cap/day).
+# footprint_type = "import_cont_<Continent>" (food) / "..._nf" (non-food); plot_countries()
+# recognizes both the "import" and "_nf" naming to color/stack/negate them correctly.
+make_import_continent_df = function(l_country, sector_suffix) {
+  bind_rows(lapply(c("hr_m", "hr_f"), function(m) {
+    import_by_continent(l_country[[m]]) %>%
+      filter(country %in% direct_ord) %>%
+      left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
+      mutate(country = factor(country, levels = direct_ord),
+             type = m,
+             is_row = FALSE,
+             per_capita_value = import / population * 1e6 / 365,
+             footprint_type = paste0("import_cont_", continent, sector_suffix)) %>%
+      select(country, type, is_row, footprint_type, per_capita_value)
+  }))
+}
+
+b_import = bind_rows(make_import_continent_df(l_food_country, ""),
+                      make_import_continent_df(l_nonfood_country, "_nf"))
+import_levels = sort(unique(b_import$footprint_type))
+
+b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type)), b_nonfood, b_import) %>%
   mutate(footprint_type = factor(footprint_type, levels = c(
     "preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
     "energy_non.econ", "water_non.econ",
     "preparation_econ",
     "domestic_per_capita_nf", "export_per_capita_nf",
     "domestic_per_capita", "export_per_capita",
-    "import_per_capita_nf", "import_per_capita"
+    import_levels
   )))
 
 # Share y-axis limits between the female/male panels, sized to the combined
 # food + non-food stack (positive) and food + non-food import (negative)
 stack_totals_direct = b_direct %>%
   filter(type %in% c("hr_m", "hr_f")) %>%
-  mutate(part = ifelse(footprint_type %in% c("import_per_capita", "import_per_capita_nf"), "neg", "pos")) %>%
+  mutate(part = ifelse(grepl("^import_cont_", footprint_type), "neg", "pos")) %>%
   group_by(country, type, part) %>%
   summarise(total = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
 y_max_direct =  max(stack_totals_direct$total[stack_totals_direct$part == "pos"], na.rm = TRUE) * 1.1
