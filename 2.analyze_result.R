@@ -369,7 +369,7 @@ partial_ord = (summary_food_df_long_with_ghd %>% filter(country %in% partial_cty
                  group_by(country) %>% 
                  summarise(d = sum(per_capita_value, na.rm=TRUE)) %>% 
                  arrange(-d))$country
-a = summary_food_df_long_with_ghd %>% filter(country %in% partial_cty) %>%
+partial_df = summary_food_df_long_with_ghd %>% filter(country %in% partial_cty) %>%
   mutate(country = factor(country, levels = partial_ord)) %>%
   arrange(country)
 
@@ -412,21 +412,21 @@ und_partial = tibble(country = as.character(partial_cty)) %>%
 und_max   <- max(und_partial$undernourishment_pct, na.rm = TRUE)
 und_scale <- 3.0 / und_max
 
-p1 = plot_countries(a %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
+p1 = plot_countries(partial_df %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
   geom_point(data = pro_partial, aes(x = country, y = pro_per_cap_day * pro_scale),
              color = "black", size = 2.5, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(-0.2, 3.5),
                      sec.axis = sec_axis(~ . / pro_scale, name = "g protein/cap/day"))
-p2 = plot_countries(a %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
+p2 = plot_countries(partial_df %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
   geom_point(data = und_partial, aes(x = country, y = undernourishment_pct * und_scale),
              color = "black", size = 2.5, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(-0.2, 3.5),
                      sec.axis = sec_axis(~ . / und_scale, name = "Prevalence of undernourishment (%)"))
-p3 = plot_countries(a %>% filter(type %in% c("en")), "Energy footprint per capita (GJ/yr)", "")
+p3 = plot_countries(partial_df %>% filter(type %in% c("en")), "Energy footprint per capita (GJ/yr)", "")
 
 # Protein supply vs. total food provisioning time, one point per country per gender
 # (excludes export_per_capita, since that time provisions other countries' consumption)
-time_partial = a %>%
+time_partial = partial_df %>%
   filter(type %in% c("hr_m", "hr_f"),
          !footprint_type %in% c("export_per_capita", "import_per_capita")) %>%
   group_by(country, type, is_row) %>%
@@ -549,7 +549,7 @@ ggsave("results/protein_vs_time_domestic.pdf", p4_domestic, width = 16, height =
 # Same dual-axis figure, restricted to non-RoW countries only
 nonrow_ord = partial_ord[!as.character(partial_ord) %in% row_countries]
 
-a_nonrow = a %>% filter(!is_row) %>%
+partial_df_nonrow = partial_df %>% filter(!is_row) %>%
   mutate(country = factor(as.character(country), levels = as.character(nonrow_ord)))
 
 pro_partial_nonrow = pro_partial %>%
@@ -564,12 +564,12 @@ und_partial_nonrow = und_partial %>%
 und_max_nonrow   <- max(und_partial_nonrow$undernourishment_pct, na.rm = TRUE)
 und_scale_nonrow <- 3.0 / und_max_nonrow
 
-p1_nonrow = plot_countries(a_nonrow %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
+p1_nonrow = plot_countries(partial_df_nonrow %>% filter(type %in% c("hr_f"), footprint_type != "import_per_capita"), "Resident time use per capita: Female (hr/day)", "") +
   geom_point(data = pro_partial_nonrow, aes(x = country, y = pro_per_cap_day * pro_scale_nonrow),
              color = "black", size = 2.5, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(-0.2, 3.5),
                      sec.axis = sec_axis(~ . / pro_scale_nonrow, name = "g protein/cap/day"))
-p2_nonrow = plot_countries(a_nonrow %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
+p2_nonrow = plot_countries(partial_df_nonrow %>% filter(type %in% c("hr_m"), footprint_type != "import_per_capita"), "Resident time use per capita: Male (hr/day)", "") +
   geom_point(data = und_partial_nonrow, aes(x = country, y = undernourishment_pct * und_scale_nonrow),
              color = "black", size = 2.5, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(-0.2, 3.5),
@@ -589,7 +589,7 @@ p_combined_partial_nonrow[[2]] <- p_combined_partial_nonrow[[2]] +
         axis.ticks.x = element_line())
 print(p_combined_partial_nonrow)
 
-ggsave("results/footprint_partial_countries_nonrow.pdf", p_combined_partial_nonrow, width = 18, height = 12)
+ggsave("results/footprint_partial_countries_nonrow update.pdf", p_combined_partial_nonrow, width = 18, height = 12)
 
 # Non-food sector: combined female + male + energy, ordered by non-food female time
 nonfood_ord = (summary_nonfood_df_long %>%
