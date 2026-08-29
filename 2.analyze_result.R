@@ -660,6 +660,7 @@ b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type))
 # Share y-axis limits between the female/male panels, sized to the combined
 # food + non-food stack (positive) and food + non-food import (negative)
 stack_totals_direct = b_direct %>%
+  filter(type %in% c("hr_m", "hr_f")) %>%
   mutate(part = ifelse(footprint_type %in% c("import_per_capita", "import_per_capita_nf"), "neg", "pos")) %>%
   group_by(country, type, part) %>%
   summarise(total = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
@@ -679,7 +680,7 @@ p_combined_direct[[2]] <- p_combined_direct[[2]] +
         axis.ticks.x = element_line())
 print(p_combined_direct)
 
-ggsave(paste0("results/footprint_direct_countries.pdf"), p_combined_direct, width = 18, height = 12)
+ggsave(paste0("results/footprint_direct_countries_incl_nonfood.pdf"), p_combined_direct, width = 18, height = 12)
 
 
 
