@@ -260,21 +260,54 @@ sparsity <- function(mat) {
 
 plot_countries <- function(df, ylabel, maintitle) {
 
-  # Get domestsic/export/import factor names out of df$footprint_type 
-  footprint_types = unique(df$footprint_type)
+  # Get domestsic/export/import factor names out of df$footprint_type
+  footprint_types = as.character(unique(df$footprint_type))
   name_dom = footprint_types[grepl("domestic", footprint_types)]
   name_exp = footprint_types[grepl("export", footprint_types)]
   name_imp = footprint_types[grepl("import", footprint_types)]
   # print(name_dom, name_exp, name_imp)
   print(footprint_types)
 
-  c_scheme = setNames(c("#08519c", "#3182bd", "#6baed6"), c(name_dom, name_exp, name_imp))
+  # Food footprint_types are plain ("domestic_per_capita"); their non-food-sector
+  # counterparts carry a "_nf" suffix ("domestic_per_capita_nf") so a food and a
+  # non-food component can be stacked/negated side by side in the same bar while
+  # staying visually distinguishable (blue family = food, green family = non-food).
+  color_for_sector = function(names, food_color, nonfood_color) {
+    setNames(ifelse(grepl("_nf$", names), nonfood_color, food_color), names)
+  }
+
+  # Import categories disaggregated by continent-of-origin ("import_cont_<Continent>",
+  # optionally suffixed "_nf" for non-food) get one shade per continent -- a blues
+  # ramp for food, a greens ramp for non-food -- instead of the flat single color
+  # used for a plain "import_per_capita" total. Colors are sampled directly from
+  # Brewer's hand-tuned 9-class steps (not a smoothed colorRampPalette interpolation
+  # of them) and spread across the full dark-to-medium range, so adjacent continents
+  # stay visually distinct from each other within the same food/non-food hue family.
+  import_continents = unique(gsub("_nf$", "", gsub("^import_cont_", "", name_imp[grepl("^import_cont_", name_imp)])))
+  if (length(import_continents) > 0) {
+    n_cont = length(import_continents)
+    cont_idx = if (n_cont == 1) 8 else round(seq(9, 3, length.out = n_cont))
+    pal_food_imp    = setNames(RColorBrewer::brewer.pal(9, "Blues")[cont_idx], import_continents)
+    pal_nonfood_imp = setNames(RColorBrewer::brewer.pal(9, "Greens")[cont_idx], import_continents)
+    imp_scheme = setNames(sapply(name_imp, function(nm) {
+      if (!grepl("^import_cont_", nm)) return(if (grepl("_nf$", nm)) "#a1d99b" else "#6baed6")
+      is_nf = grepl("_nf$", nm)
+      cont  = gsub("_nf$", "", gsub("^import_cont_", "", nm))
+      if (is_nf) pal_nonfood_imp[[cont]] else pal_food_imp[[cont]]
+    }), name_imp)
+  } else {
+    imp_scheme = color_for_sector(name_imp, "#6baed6", "#a1d99b")
+  }
+
+  c_scheme = c(color_for_sector(name_dom, "#08519c", "#31a354"),
+               color_for_sector(name_exp, "#3182bd", "#74c476"),
+               imp_scheme)
   # Check if the first row of df has type starting with "hr_m" or "hr_f" to determine if it's labor or energy footprint
   if (!"type" %in% colnames(df)) { # Nutrient
     part_negative = name_exp
     scale_factor = 1
   } else if (df$type[1] %in% c("hr_m", "hr_f")) { # Labor footprint
-    part_negative = "import_per_capita"
+    part_negative = name_imp # all import_per_capita[_nf] categories are plotted as negative bars, stacked
     scale_factor = 1
     # Econ (paid) categories stay in the cool blue family (set above); non-econ
     # (household/unpaid) categories get their own warm yellow-orange-red family,
@@ -298,8 +331,8 @@ plot_countries <- function(df, ylabel, maintitle) {
   pos_type = ifelse(neg_type == "import", "export", "import")
   
   has_row <- "is_row" %in% colnames(df)
-  pos_df  <- df %>% filter(footprint_type != part_negative)
-  neg_df  <- df %>% filter(footprint_type == part_negative)
+  pos_df  <- df %>% filter(!footprint_type %in% part_negative)
+  neg_df  <- df %>% filter(footprint_type %in% part_negative)
 
   if (has_row) {
     g <- ggplot(pos_df, aes(x=country, y=per_capita_value/scale_factor, fill=footprint_type, alpha=is_row))
@@ -329,6 +362,11 @@ plot_countries <- function(df, ylabel, maintitle) {
   if (has_row) {
     g <- g + scale_alpha_manual(values=c("TRUE"=0.3, "FALSE"=0.9), guide="none")
   }
+
+  # Expose the resolved name -> hex fill mapping so callers can color other
+  # elements (e.g. annotation text) to match a specific bar segment exactly,
+  # without re-deriving the (continent-dependent) palette themselves.
+  attr(g, "fill_scheme") <- c_scheme
 
   print(g)
   return(g)

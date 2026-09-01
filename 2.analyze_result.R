@@ -634,11 +634,111 @@ direct_ord = (summary_food_df_long_with_ghd %>%
   arrange(-d))$country
 
 b = summary_food_df_long_with_ghd %>%
-  filter(!is_row) %>%
+  filter(!is_row, footprint_type != "import_per_capita") %>%
   mutate(country = factor(country, levels = direct_ord))
 
-p_hr_f_direct = plot_countries(b %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
-p_hr_m_direct = plot_countries(b %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(-1, 3.5)
+# Add non-food-sector domestic/export time (labor in packaging, transport, etc.
+# that supports food provisioning) into the same bars. footprint_type gets a
+# "_nf" suffix so plot_countries() can color and stack it separately from the
+# matching food component. (Non-food import is added below, disaggregated by
+# continent, same as food import.)
+b_nonfood = summary_nonfood_df_long %>%
+  filter(!is_row, type %in% c("hr_f", "hr_m"), footprint_type != "import_per_capita") %>%
+  mutate(country = factor(country, levels = direct_ord),
+         footprint_type = paste0(as.character(footprint_type), "_nf"))
+
+# Continent-of-origin breakdown of the import component -----------------------------
+# For each consuming country, split the import total (colSums(mat) - diag(mat)) by the
+# continent of the producing country -- the same continent grouping (regions$continent)
+# and imp_by_cont logic used by make_continent_data()'s single-country spotlight plots,
+# just computed for every country at once instead of one focal iso.
+import_by_continent = function(mat) {
+  cty  = colnames(mat)
+  cont = regions$continent[match(cty, regions$iso3c)]
+
+  bind_rows(lapply(seq_along(cty), function(j) {
+    not_focal = seq_along(cty) != j
+    imp_by_cont = tapply(mat[not_focal, j], cont[not_focal], sum, na.rm = TRUE)
+    data.frame(country = cty[j], continent = names(imp_by_cont), import = as.numeric(imp_by_cont))
+  }))
+}
+
+pop_data_yr = subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population)
+
+# Long df of import_per_capita by continent-of-origin for hr_m/hr_f, in the same units as
+# summary_food_df_long/summary_nonfood_df_long's import_per_capita (M.hr -> hr/cap/day).
+# footprint_type = "import_cont_<Continent>" (food) / "..._nf" (non-food); plot_countries()
+# recognizes both the "import" and "_nf" naming to color/stack/negate them correctly.
+make_import_continent_df = function(l_country, sector_suffix) {
+  bind_rows(lapply(c("hr_m", "hr_f"), function(m) {
+    import_by_continent(l_country[[m]]) %>%
+      filter(country %in% direct_ord) %>%
+      left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
+      mutate(country = factor(country, levels = direct_ord),
+             type = m,
+             is_row = FALSE,
+             per_capita_value = import / population * 1e6 / 365,
+             footprint_type = paste0("import_cont_", continent, sector_suffix)) %>%
+      select(country, type, is_row, footprint_type, per_capita_value)
+  }))
+}
+
+b_import = bind_rows(make_import_continent_df(l_food_country, ""),
+                      make_import_continent_df(l_nonfood_country, "_nf"))
+import_levels = sort(unique(b_import$footprint_type))
+
+b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type)), b_nonfood, b_import) %>%
+  mutate(footprint_type = factor(footprint_type, levels = c(
+    "preparation_non.econ", "processing_non.econ", "growth_collection_non.econ",
+    "energy_non.econ", "water_non.econ",
+    "preparation_econ",
+    "domestic_per_capita_nf", "export_per_capita_nf",
+    "domestic_per_capita", "export_per_capita",
+    import_levels
+  )))
+
+# Share y-axis limits between the female/male panels, sized to the combined
+# food + non-food stack (positive) and food + non-food import (negative)
+stack_totals_direct = b_direct %>%
+  filter(type %in% c("hr_m", "hr_f")) %>%
+  mutate(part = ifelse(grepl("^import_cont_", footprint_type), "neg", "pos")) %>%
+  group_by(country, type, part) %>%
+  summarise(total = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
+y_max_direct =  max(stack_totals_direct$total[stack_totals_direct$part == "pos"], na.rm = TRUE) * 1.1
+y_min_direct = -max(stack_totals_direct$total[stack_totals_direct$part == "neg"], na.rm = TRUE) * 1.1
+
+p_hr_f_direct = plot_countries(b_direct %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+p_hr_m_direct_base = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+
+# LUX (male) has by far the largest import-effort bar (drives y_min_direct itself --
+# see the y-axis scaling fix above) and its continent-of-origin makeup isn't obvious
+# from color alone, so label each import_cont_* segment right next to its own block,
+# in that block's own fill color (via plot_countries()'s attached "fill_scheme").
+# Segment y-ranges are derived analytically rather than via ggplot_build(): with
+# position_stack() on negative values, the FIRST level of footprint_type ends up
+# farthest from zero and the LAST level ends up closest to zero (verified
+# empirically) -- ordering by import_levels and cumulative-summing from the total
+# reproduces that exactly.
+lux_idx = which(direct_ord == "LUX")
+fill_scheme = attr(p_hr_m_direct_base, "fill_scheme")
+
+lux_segments = b_direct %>%
+  filter(country == "LUX", type == "hr_m", grepl("^import_cont_", as.character(footprint_type))) %>%
+  mutate(footprint_type = factor(as.character(footprint_type), levels = import_levels)) %>%
+  arrange(footprint_type) %>%
+  mutate(ymax = cumsum(per_capita_value) - sum(per_capita_value),
+         ymin = ymax - per_capita_value,
+         y_mid = (ymin + ymax) / 2,
+         continent = gsub("_nf$", "", gsub("^import_cont_", "", as.character(footprint_type))),
+         sector = ifelse(grepl("_nf$", as.character(footprint_type)), "non-food", "food"),
+         label = paste0(continent, ": ", round(per_capita_value, 2), "h"),
+         color = fill_scheme[as.character(footprint_type)]) %>%
+  filter(per_capita_value >= 0.15)  # skip slivers too thin for non-overlapping labels
+
+p_hr_m_direct = p_hr_m_direct_base +
+  { if (length(lux_idx) == 1 && nrow(lux_segments) > 0)
+      geom_text(data = lux_segments, aes(x = lux_idx + 0.6, y = y_mid, label = label),
+                color = lux_segments$color, hjust = 0, size = 3, fontface = "bold", inherit.aes = FALSE) }
 
 p_combined_direct = p_hr_f_direct / p_hr_m_direct + plot_layout(guides = "collect") & theme(
   legend.position = "top",
@@ -650,7 +750,7 @@ p_combined_direct[[2]] <- p_combined_direct[[2]] +
         axis.ticks.x = element_line())
 print(p_combined_direct)
 
-ggsave(paste0("results/footprint_direct_countries.pdf"), p_combined_direct, width = 18, height = 12)
+ggsave(paste0("results/footprint_direct_countries_incl_nonfood.pdf"), p_combined_direct, width = 18, height = 12)
 
 
 
