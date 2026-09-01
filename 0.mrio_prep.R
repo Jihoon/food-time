@@ -183,12 +183,17 @@ df_ghd_gender = df_ghd_gender %>% rename(footprint_type = subcategory) %>%
   drop_na() # Drop rows with NA values in per_capita_value
 
 # 4.2. Read the restaurant data ####
-df_restaurant = read_csv(paste0(path_GHD, "outputData/restaurants_accommodations_time.csv")) %>% 
+# Source has empl_restaurants counts but a blank mean_hrs_restaurants for a few
+# countries (JPN, KOR, MNG, TUN as of this data vintage) -- drop those rather than
+# carrying NA per_capita_value through to the plots (df_water_energy below does the
+# same for its own source).
+df_restaurant = read_csv(paste0(path_GHD, "outputData/restaurants_accommodations_time.csv")) %>%
   select(country, hr_m = mean_hrs_restaurants, hr_f = mean_hrs_restaurants) %>%
   # stack df_restaurant twice with type "hr_m" and "hr_f" to match the structure of df_ghd_gender
   pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_capita_value") %>%
   mutate(footprint_type = "preparation_econ") %>%
-  select(country, type, footprint_type, per_capita_value)
+  select(country, type, footprint_type, per_capita_value) %>%
+  drop_na()
 
 # 4.2b. Read water and firewood collection time (no gender split; apply the same value to both genders) ####
 df_water_energy = read_csv("data/water_firewood.csv") %>%
