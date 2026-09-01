@@ -708,7 +708,37 @@ y_max_direct =  max(stack_totals_direct$total[stack_totals_direct$part == "pos"]
 y_min_direct = -max(stack_totals_direct$total[stack_totals_direct$part == "neg"], na.rm = TRUE) * 1.1
 
 p_hr_f_direct = plot_countries(b_direct %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
-p_hr_m_direct = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+p_hr_m_direct_base = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+
+# LUX (male) has by far the largest import-effort bar (drives y_min_direct itself --
+# see the y-axis scaling fix above) and its continent-of-origin makeup isn't obvious
+# from color alone, so label each import_cont_* segment right next to its own block,
+# in that block's own fill color (via plot_countries()'s attached "fill_scheme").
+# Segment y-ranges are derived analytically rather than via ggplot_build(): with
+# position_stack() on negative values, the FIRST level of footprint_type ends up
+# farthest from zero and the LAST level ends up closest to zero (verified
+# empirically) -- ordering by import_levels and cumulative-summing from the total
+# reproduces that exactly.
+lux_idx = which(direct_ord == "LUX")
+fill_scheme = attr(p_hr_m_direct_base, "fill_scheme")
+
+lux_segments = b_direct %>%
+  filter(country == "LUX", type == "hr_m", grepl("^import_cont_", as.character(footprint_type))) %>%
+  mutate(footprint_type = factor(as.character(footprint_type), levels = import_levels)) %>%
+  arrange(footprint_type) %>%
+  mutate(ymax = cumsum(per_capita_value) - sum(per_capita_value),
+         ymin = ymax - per_capita_value,
+         y_mid = (ymin + ymax) / 2,
+         continent = gsub("_nf$", "", gsub("^import_cont_", "", as.character(footprint_type))),
+         sector = ifelse(grepl("_nf$", as.character(footprint_type)), "non-food", "food"),
+         label = paste0(continent, ": ", round(per_capita_value, 2), "h"),
+         color = fill_scheme[as.character(footprint_type)]) %>%
+  filter(per_capita_value >= 0.15)  # skip slivers too thin for non-overlapping labels
+
+p_hr_m_direct = p_hr_m_direct_base +
+  { if (length(lux_idx) == 1 && nrow(lux_segments) > 0)
+      geom_text(data = lux_segments, aes(x = lux_idx + 0.6, y = y_mid, label = label),
+                color = lux_segments$color, hjust = 0, size = 3, fontface = "bold", inherit.aes = FALSE) }
 
 p_combined_direct = p_hr_f_direct / p_hr_m_direct + plot_layout(guides = "collect") & theme(
   legend.position = "top",

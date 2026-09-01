@@ -279,11 +279,16 @@ plot_countries <- function(df, ylabel, maintitle) {
   # Import categories disaggregated by continent-of-origin ("import_cont_<Continent>",
   # optionally suffixed "_nf" for non-food) get one shade per continent -- a blues
   # ramp for food, a greens ramp for non-food -- instead of the flat single color
-  # used for a plain "import_per_capita" total.
+  # used for a plain "import_per_capita" total. Colors are sampled directly from
+  # Brewer's hand-tuned 9-class steps (not a smoothed colorRampPalette interpolation
+  # of them) and spread across the full dark-to-medium range, so adjacent continents
+  # stay visually distinct from each other within the same food/non-food hue family.
   import_continents = unique(gsub("_nf$", "", gsub("^import_cont_", "", name_imp[grepl("^import_cont_", name_imp)])))
   if (length(import_continents) > 0) {
-    pal_food_imp    = setNames(colorRampPalette(RColorBrewer::brewer.pal(9, "Blues")[3:9])(length(import_continents)), import_continents)
-    pal_nonfood_imp = setNames(colorRampPalette(RColorBrewer::brewer.pal(9, "Greens")[3:9])(length(import_continents)), import_continents)
+    n_cont = length(import_continents)
+    cont_idx = if (n_cont == 1) 8 else round(seq(9, 3, length.out = n_cont))
+    pal_food_imp    = setNames(RColorBrewer::brewer.pal(9, "Blues")[cont_idx], import_continents)
+    pal_nonfood_imp = setNames(RColorBrewer::brewer.pal(9, "Greens")[cont_idx], import_continents)
     imp_scheme = setNames(sapply(name_imp, function(nm) {
       if (!grepl("^import_cont_", nm)) return(if (grepl("_nf$", nm)) "#a1d99b" else "#6baed6")
       is_nf = grepl("_nf$", nm)
@@ -357,6 +362,11 @@ plot_countries <- function(df, ylabel, maintitle) {
   if (has_row) {
     g <- g + scale_alpha_manual(values=c("TRUE"=0.3, "FALSE"=0.9), guide="none")
   }
+
+  # Expose the resolved name -> hex fill mapping so callers can color other
+  # elements (e.g. annotation text) to match a specific bar segment exactly,
+  # without re-deriving the (continent-dependent) palette themselves.
+  attr(g, "fill_scheme") <- c_scheme
 
   print(g)
   return(g)
