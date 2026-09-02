@@ -40,6 +40,13 @@ if (!exists("FABIO_x_hh")) {
 
 # Population (aligned to regions$iso3c)
 data(countrypops)
+# countrypops is missing Taiwan (TWN) -- see 0.mrio_prep.R for the diagnosis.
+# data(countrypops) above re-loads the raw package data (undoing 0.mrio_prep.R's
+# patch if it ran earlier in this session), so reapply it here too.
+taiwan_pop <- read.csv("data/Taiwan-population.csv") %>%
+  transmute(country_name = "Taiwan", country_code_2 = "TW", country_code_3 = "TWN",
+            year = Year, population = Population)
+countrypops <- bind_rows(countrypops, taiwan_pop)
 pop_y <- subset(countrypops, year == yr) %>%
   select(iso3c = country_code_3, pop = population) %>%
   right_join(regions %>% select(iso3c), by = "iso3c")

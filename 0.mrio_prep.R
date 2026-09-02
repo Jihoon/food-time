@@ -5,6 +5,18 @@ library(Matrix)
 library(gt)
 data(countrypops)
 
+# countrypops (from the countrypops package) is missing Taiwan (TWN) --
+# common for population datasets that follow UN-membership conventions.
+# Supplement it from a hand-added CSV (region given as 2-letter "TW") so
+# pop-normalized figures don't silently drop Taiwan -- previously this sent
+# it down the pop=NA / dropped-from-plots path (see the
+# setdiff(regions$iso3c, unique(countrypops$country_code_3)) check in
+# 2.analyze_result.R).
+taiwan_pop <- read.csv("data/Taiwan-population.csv") %>%
+  transmute(country_name = "Taiwan", country_code_2 = "TW", country_code_3 = "TWN",
+            year = Year, population = Population)
+countrypops <- bind_rows(countrypops, taiwan_pop)
+
 source("99.utils.R")
 
 # Key parameters for config
@@ -44,11 +56,21 @@ FABIO_reg = readxl::read_xlsx(paste0(FABIO_path, "fabio_classifications_v2.xlsx"
   rename(ISO = `iso3c`, FAO_code = `area_code`) %>%
   left_join(reg_map) %>%
   # replace NA cells with values from Country=="RoW Europe" (Lichtenstein, Monaco, Andorra, San Marino etc.)
-  mutate(EXIOBASE_code = 
+  mutate(EXIOBASE_code =
            as.numeric(ifelse(EXIOBASE_code=="NA", 47, EXIOBASE_code)),
-         EXIOBASE = 
+         EXIOBASE =
            ifelse(EXIOBASE=="NA", "RoW Europe", EXIOBASE))
 # Note: RoW countries' mean GDP/cap is close to that of Italy (<- Perplexity)
+
+# Data-quality fix: code 41 (TWN's own individually-modeled EXIO region) is
+# mislabeled "RoW Asia and Pacific" in the source concordance -- collides
+# with the genuine RoW Asia & Pacific aggregate (code 45, ~37 countries),
+# breaking anything that treats region names as unique (e.g. factor levels)
+# and wrongly flagging Taiwan as a RoW aggregate member (is_row/row_countries
+# match on grepl("RoW", EXIOBASE)). Taiwan is one of EXIOBASE's individually-
+# modeled economies; correct its label.
+stopifnot(identical(sort(unique(FABIO_reg$EXIOBASE[FABIO_reg$EXIOBASE_code == 41])), "RoW Asia and Pacific"))
+FABIO_reg$EXIOBASE[FABIO_reg$EXIOBASE_code == 41] <- "Taiwan"
 
 # Load FABIO metadata
 library(data.table)

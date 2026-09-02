@@ -3527,7 +3527,7 @@ prod_cty <- data.frame(iso3c = rownames(mat),
          imp_pday = import / pop * 1000 / 365, # Mcal to kcal
          exp_pday = export / pop * 1000 / 365) %>%
   mutate(supp_pday = prod_pday+imp_pday) %>% # Mcal to kcal
-  filter(!iso3c %in% c("ROW", "TWN", "ANT")) %>% # countries with no population data
+  filter(!iso3c %in% c("ROW", "ANT")) %>% # countries with no population data
   filter(!iso3c %in% c("SGP", "MDV"), prod_pday > 1)  # countries not interesting
 
 # Draw a multi-panel grouped bar graph, showing production and export (for top 20 countries with highest export_perc)
@@ -3613,7 +3613,7 @@ cons_cty <- data.frame(iso3c = colnames(mat_y),
          imp_pday = (import) / pop * 1000 / 365,
          exp_pday = (export) / pop * 1000 / 365)  %>% # Mcal to kcal/day/cap
   mutate(supp_pday = dom_cons_pday+imp_pday) %>%
-  filter(!iso3c %in% c("ROW", "TWN", "ANT")) %>% # countries with no population data
+  filter(!iso3c %in% c("ROW", "ANT")) %>% # countries with no population data
   filter(!iso3c %in% c("SGP", "MDV"), dom_cons_pday+imp_pday > 1000)
 
 # Draw a similar plot for consumption and import (stacked); and export (for top 20 countries with highest import_perc)
