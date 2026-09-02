@@ -326,9 +326,12 @@ plot_countries <- function(df, ylabel, maintitle) {
     scale_factor = 1e3
   }
   
-  # Get first work before "_" of part_negative to determine the type of footprint for labeling
-  neg_type = strsplit(as.character(part_negative), "_")[[1]][1]
-  pos_type = ifelse(neg_type == "import", "export", "import")
+  # Get first word before "_" of part_negative to determine the type of footprint for labeling.
+  # (neg_type/pos_type aren't referenced anywhere below -- vestigial -- but guard the empty case
+  # anyway: a caller can legitimately pre-filter out the whole negative category, e.g. dropping
+  # import_per_capita before calling plot_countries(), leaving part_negative empty.)
+  neg_type = if (length(part_negative) > 0) strsplit(as.character(part_negative)[1], "_")[[1]][1] else NA_character_
+  pos_type = ifelse(is.na(neg_type), NA_character_, ifelse(neg_type == "import", "export", "import"))
   
   has_row <- "is_row" %in% colnames(df)
   pos_df  <- df %>% filter(!footprint_type %in% part_negative)

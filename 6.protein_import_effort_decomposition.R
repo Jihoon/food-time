@@ -23,6 +23,13 @@ library(data.table)
 library(gt)
 data(countrypops)
 
+# countrypops is missing Taiwan (TWN) -- see 0.mrio_prep.R for the diagnosis.
+# Supplement it the same way here for consistency.
+taiwan_pop <- read.csv("data/Taiwan-population.csv") %>%
+  transmute(country_name = "Taiwan", country_code_2 = "TW", country_code_3 = "TWN",
+            year = Year, population = Population)
+countrypops <- bind_rows(countrypops, taiwan_pop)
+
 year = 2020
 yr = 2020
 FABIO_path = "H:/MyDocuments/Data/FABIO/input/"
@@ -62,6 +69,12 @@ FABIO_reg <- readxl::read_xlsx(paste0(FABIO_path, "fabio_classifications_v2.xlsx
   left_join(reg_map) %>%
   mutate(EXIOBASE_code = as.numeric(ifelse(EXIOBASE_code=="NA", 47, EXIOBASE_code)),
          EXIOBASE = ifelse(EXIOBASE=="NA", "RoW Europe", EXIOBASE))
+
+# Data-quality fix: code 41 (TWN's own individually-modeled EXIO region) is
+# mislabeled "RoW Asia and Pacific" in the source concordance -- see
+# 7.import_effort_hypothesis_test.R for the diagnosis. Correct its label.
+stopifnot(identical(sort(unique(FABIO_reg$EXIOBASE[FABIO_reg$EXIOBASE_code == 41])), "RoW Asia and Pacific"))
+FABIO_reg$EXIOBASE[FABIO_reg$EXIOBASE_code == 41] <- "Taiwan"
 
 # Sanity check: regions/FABIO_reg must share the same 187-country ordering for
 # the block-index arithmetic below (producer_country_food, origin_country_nf) to
