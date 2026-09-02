@@ -159,6 +159,18 @@ countries_to_regions = function(iso_codes) unique(iso_to_region[iso_codes])
 region_to_iso_1to1 = FABIO_reg %>% filter(!grepl("RoW", EXIOBASE)) %>%
   distinct(EXIOBASE, ISO) %>% { setNames(.$ISO, .$EXIOBASE) }
 
+# Continent label for each of the 49 EXIO regions -- for any continent-of-
+# origin breakdown of non-food effort (which is region-resolved on its
+# origin axis). A named (non-RoW) region's members are just itself, so this
+# reduces to regions$continent. A RoW aggregate can span more than one FABIO
+# continent label -- fall back to the region's own name, which is already a
+# continent-scoped EXIOBASE grouping (RoW Africa/America/Asia and Pacific/
+# Europe/Middle East). Used by both b_import (below) and make_continent_data().
+region_continent_of_index = sapply(seq_len(n_reg_EXIO), function(i) {
+  conts_i = unique(regions$continent[region_members[[as.character(i)]]])
+  if (length(conts_i) == 1) conts_i else region_name_of_index[i]
+})
+
 # Collapse a matrix's row and/or column axis from FABIO-country resolution
 # (187) to EXIO-region resolution (49), summing member countries within each
 # region block. An axis already region-resolved (e.g. l_int_i's origin/row
@@ -823,6 +835,20 @@ import_by_continent = function(mat) {
   }))
 }
 
+# Non-food counterpart: mat is 49 (EXIO region) x 187 (FABIO country) --
+# origin is region-resolved, so exclude the focal country's own REGION (not
+# just its own column) and group by region_continent_of_index rather than
+# regions$continent.
+import_by_continent_nonfood = function(mat) {
+  cty = colnames(mat)
+  bind_rows(lapply(seq_along(cty), function(j) {
+    own_region_idx = region_row_of_country[j]
+    not_focal_region = seq_len(n_reg_EXIO) != own_region_idx
+    imp_by_cont = tapply(mat[not_focal_region, j], region_continent_of_index[not_focal_region], sum, na.rm = TRUE)
+    data.frame(country = cty[j], continent = names(imp_by_cont), import = as.numeric(imp_by_cont))
+  }))
+}
+
 pop_data_yr = subset(countrypops, year == yr) %>% select(iso3c = country_code_3, population)
 
 # Long df of import_per_capita by continent-of-origin for hr_m/hr_f, in the same units as
@@ -831,7 +857,9 @@ pop_data_yr = subset(countrypops, year == yr) %>% select(iso3c = country_code_3,
 # recognizes both the "import" and "_nf" naming to color/stack/negate them correctly.
 make_import_continent_df = function(l_country, sector_suffix) {
   bind_rows(lapply(c("hr_m", "hr_f"), function(m) {
-    import_by_continent(l_country[[m]]) %>%
+    mat = l_country[[m]]
+    imp_df = if (nrow(mat) == nrreg) import_by_continent(mat) else import_by_continent_nonfood(mat)
+    imp_df %>%
       filter(country %in% direct_ord) %>%
       left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
       mutate(country = factor(country, levels = direct_ord),
@@ -844,7 +872,7 @@ make_import_continent_df = function(l_country, sector_suffix) {
 }
 
 b_import = bind_rows(make_import_continent_df(l_food_country, ""),
-                      make_import_continent_df(l_nonfood_country, "_nf"))
+                      make_import_continent_df(l_nonfood_region, "_nf"))
 import_levels = sort(unique(b_import$footprint_type))
 
 b_direct = bind_rows(b %>% mutate(footprint_type = as.character(footprint_type)), b_nonfood, b_import) %>%
@@ -910,7 +938,7 @@ p_combined_direct[[2]] <- p_combined_direct[[2]] +
         axis.ticks.x = element_line())
 print(p_combined_direct)
 
-ggsave(paste0("results/footprint_direct_countries_incl_nonfood.pdf"), p_combined_direct, width = 18, height = 12)
+ggsave(paste0("results/footprint_direct_countries_incl_nonfood update.pdf"), p_combined_direct, width = 18, height = 12)
 
 
 
@@ -1374,16 +1402,8 @@ make_spotlight_data = function(iso) {
 mat_kcal_country = agg_country_footprint(FABIO_y_hh_cal)  # 187×187, kcal
 mat_pro_country  = agg_country_footprint(FABIO_y_hh_pro)  # 187×187, g protein
 
-# Continent label for each of the 49 EXIO regions, for the non-food
-# import-by-origin breakdown below. A named (non-RoW) region's members are
-# just itself, so this reduces to regions$continent. A RoW aggregate can span
-# more than one FABIO continent label -- fall back to the region's own name,
-# which is already a continent-scoped EXIOBASE grouping (RoW Africa/America/
-# Asia and Pacific/Europe/Middle East).
-region_continent_of_index = sapply(seq_len(n_reg_EXIO), function(i) {
-  conts_i = unique(regions$continent[region_members[[as.character(i)]]])
-  if (length(conts_i) == 1) conts_i else region_name_of_index[i]
-})
+# region_continent_of_index is defined near the top-level region lookups
+# (shared with b_import's make_import_continent_df, above).
 
 make_continent_data = function(iso) {
   pop = subset(countrypops, year == yr & country_code_3 == iso)$population
@@ -3149,6 +3169,31 @@ agg_to_country_sankey <- function(mat, n_top = 20) {
   list(mat = mat_agg, pop = pop_lookup)
 }
 
+# Region-resolved counterpart, for non-food matrices (l_nonfood_region):
+# nodes are EXIO regions (a RoW aggregate is one node, not split across its
+# member countries) rather than FABIO countries. mat must already be a
+# square 49x49 region-region matrix (agg_to_region_matrix(l_nonfood_region[[metric]])).
+agg_to_region_sankey <- function(mat, n_top = 20) {
+  reg  <- rownames(mat)
+  cont <- region_continent_of_index[match(reg, region_name_of_index)]
+
+  off   <- mat; diag(off) <- 0
+  total <- rowSums(off) + colSums(off)
+  top   <- names(sort(total, decreasing = TRUE))[seq_len(min(n_top, length(reg)))]
+
+  labels <- ifelse(reg %in% top, reg,
+                   paste0("Other ", ifelse(is.na(cont), "World", cont)))
+
+  mat_agg        <- t(rowsum(t(rowsum(mat, group = labels)), group = labels))
+  diag(mat_agg)  <- 0
+
+  pop_lookup <- data.frame(exio_region = reg, label = labels, pop = region_population[match(reg, region_name_of_index)]) %>%
+    group_by(label) %>%
+    summarise(pop = sum(pop, na.rm = TRUE), .groups = "drop")
+
+  list(mat = mat_agg, pop = pop_lookup)
+}
+
 # Shared aggregation for two matrices, using the same country labels for both.
 # Ensures prod and cons Sankey nodes are directly comparable.
 agg_to_country_sankey_shared <- function(mat_prod, mat_cons, n_top = 20) {
@@ -3197,9 +3242,13 @@ pop_pro_cty  = res_pro_cty$pop
 # Labels are either iso3c codes (top countries) or "Other {continent}".
 label_to_continent <- function(labels) {
   other <- grepl("^Other ", labels)
-  cont  <- ifelse(other,
-                  sub("^Other ", "", labels),
-                  regions$continent[match(labels, regions$iso3c)])
+  # Try ISO3 first (food Sankeys' node labels); fall back to EXIO region name
+  # (non-food Sankeys' node labels -- e.g. "China", "RoW Africa" -- which
+  # never match regions$iso3c).
+  cont_iso    <- regions$continent[match(labels, regions$iso3c)]
+  cont_region <- region_continent_of_index[match(labels, region_name_of_index)]
+  cont <- ifelse(other, sub("^Other ", "", labels),
+                 ifelse(!is.na(cont_iso), cont_iso, cont_region))
   ifelse(is.na(cont), "World", cont)
 }
 
@@ -3465,10 +3514,12 @@ htmlwidgets::saveWidget(p_sankey_combined_pro,  "results/sankey_combined_protein
                         selfcontained = FALSE)
 
 # Food- and non-food-sector labor time Sankeys — total, male, and female.
-# Left nodes (prod): country where labor is expended in the food supply chain.
-# Right nodes (cons): country whose food consumption demands that labor.
+# Left nodes (prod): country (food) / EXIO region (non-food) where labor is
+# expended in the food supply chain. Right nodes (cons): country whose food
+# consumption demands that labor.
 for (sector in c("food", "nonfood")) {
-  l_country <- if (sector == "food") l_food_country else l_nonfood_country
+  is_nonfood <- sector == "nonfood"
+  l_country <- if (sector == "food") l_food_country else l_nonfood_region
 
   for (hr_label in c("total", "hr_m", "hr_f")) {
     mat_hr <- switch(hr_label,
@@ -3482,7 +3533,7 @@ for (sector in c("food", "nonfood")) {
       hr_f  = "min/cap/day (female)"
     )
 
-    res <- agg_to_country_sankey(mat_hr)
+    res <- if (is_nonfood) agg_to_region_sankey(agg_to_region_matrix(mat_hr)) else agg_to_country_sankey(mat_hr)
     # M.hr matrix: * 1e6 converts to hr, * 60 converts to min → pcap_scale = 6e7
     sk  <- mat_to_sankey(res$mat, scale = 1, pop = res$pop, pcap_label = pcap_label, digits = 2,
                          pcap_scale = 6e7)
@@ -3501,8 +3552,9 @@ for (sector in c("food", "nonfood")) {
 
 # Sankeys for energy (TJ→PJ, ÷1e3) by food/non-food sector
 for (sector in c("food", "nonfood")) {
-  l_country = if (sector == "food") l_food_country else l_nonfood_country
-  res = agg_to_country_sankey(l_country[["en"]])
+  is_nonfood = sector == "nonfood"
+  l_country = if (sector == "food") l_food_country else l_nonfood_region
+  res = if (is_nonfood) agg_to_region_sankey(agg_to_region_matrix(l_country[["en"]])) else agg_to_country_sankey(l_country[["en"]])
   sk  = mat_to_sankey(res$mat, scale = 1e3)
   p   = sankeyNetwork(
     Links = sk$links, Nodes = sk$nodes,
