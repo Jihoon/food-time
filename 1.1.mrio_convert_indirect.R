@@ -85,19 +85,34 @@ total_intensity_fabio = list(
 #       colSums(FABIO_y_in_EXIO) to get total energy/labor footprint for that EXIO non-food sector/origin country.
 # And then, this vector can mapped to FABIO food sector/country by using p_fabio_exio.
 
-# This gives an intensity matrix (in the same dim as satellite (32725x23001)).
+# This gives an intensity matrix. Rows stay at their native 49-EXIO-region
+# resolution (8575 = 49*175 sectors) -- see the row-expansion note below.
 l_int_i <- lapply(total_intensity_fabio, function(d) {
   # FP_trans = p_fabio_exio %*% (t(d) * colSums(FABIO_x_in_EXIO))
-    # The line above appears to be incorrect 
-    # because it multiplies the transposed intensity matrix by the column sums of FABIO_x_in_EXIO, 
+    # The line above appears to be incorrect
+    # because it multiplies the transposed intensity matrix by the column sums of FABIO_x_in_EXIO,
     # which by itself total energy/labor footprint of each non-food satellite row (e.g., machienary of AUT).
-    # BUt then, mtx-multiplying p_fabio_exio can't allocate the footprint correctly to FABIO sectors. 
+    # BUt then, mtx-multiplying p_fabio_exio can't allocate the footprint correctly to FABIO sectors.
     # Instead, we should first convert the intensity matrix back to a footprint matrix (by multiplying by FABIO_x) and then reorder it to match FABIO's classification. Here's the corrected code:
   FP_trans = t(FABIO_x_in_EXIO %*% t(d)) # This gives the total energy/labor footprint for each EXIO non-food sector/origin country, mapped to FABIO food sector/country by using p_fabio_exio.
   intensity = t(t(FP_trans) / FABIO_x )
   intensity[!is.finite(intensity)] = 0
-  intensity = reorder_countries_to_FABIO(intensity, direction=1)
-  return (intensity) # per ton
+  # DELIBERATELY not calling reorder_countries_to_FABIO(intensity, direction=1)
+  # here (as earlier versions did). That call pastes each EXIO region's
+  # 175-sector row-block onto every FABIO country mapped to it -- e.g.
+  # Somalia's block becomes byte-for-byte identical to Ethiopia's "RoW
+  # Africa" block. Downstream, compute_footprints()'s `d %*% X` and
+  # agg_country_footprint()'s rowSums/colSums treat every row as an
+  # independent, additive origin, so summing duplicated rows across a RoW
+  # region's ~20-40 FABIO members inflated that region's TRUE contribution by
+  # its member count (confirmed empirically in
+  # 8.verify_row_duplication_diagnosis.R -- the naive total was off by
+  # exactly the member count vs. any single member's own row).
+  # Leaving `intensity` at its native 49-EXIO-region row resolution keeps
+  # each origin counted exactly once. Downstream code must aggregate this
+  # object's ORIGIN axis by EXIO region (agg_exio_region_footprint(), not
+  # agg_country_footprint()) -- see 99.utils.R.
+  return (intensity) # per ton, EXIO-region-resolved (8575 x 23001)
 })
 names(l_int_i) <- c("en", "hr_m", "hr_f")
-saveRDS(l_int_i, file = paste0("data/FABIO_exio_satellites_nonfood_", year, ".rds"))
+saveRDS(l_int_i, file = paste0("data/FABIO_exio_satellites_nonfood_RoW_", year, ".rds"))
