@@ -13,16 +13,24 @@
 #
 # Run AFTER 2.analyze_result.R (reuses its `tradeoff_protein_allwork_consump`
 # object, already in the R environment).
+#
+# Restricted to EXIO-individually-modeled countries (is_row == FALSE). Any
+# FABIO country that falls in a RoW aggregate has its economic labor/energy
+# intensity pasted from that aggregate's single EXIO value (see CLAUDE.md,
+# "Architecture: The Bridging Problem" / reorder_countries_to_FABIO()) --
+# its CF is not an independent estimate, so including it would just inflate
+# n with copies of a handful of regional values.
 
 library(tidyverse)
 library(data.table)
 library(WDI)
 
-#### 1. Country-level CF and protein supply ####
+#### 1. Country-level CF and protein supply (EXIO-modeled countries only) ####
 # Total labor (household + economic, both genders) per 50 g of protein
 # actually consumed (domestic + import), and the matching protein supply.
 
 cf_df <- tradeoff_protein_allwork_consump %>%
+  filter(!is_row) %>%
   group_by(country) %>%
   summarise(hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE),
             g_protein_per_cap_day = first(g_protein_per_cap_day),
