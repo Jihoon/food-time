@@ -649,6 +649,135 @@ p4_nonrow = ggplot(df_time_protein_nonrow, aes(x = pro_per_cap_day, y = hr_per_c
 dev.new(width = 16, height = 6)
 print(p4_nonrow)
 
+# Same as p4_nonrow, but with the y-axis as time per 50 g protein (hr/50g)
+# instead of total time per capita per day -- i.e. each country's own time is
+# divided by its own protein supply, so the metric is a rate rather than a total.
+df_time_protein_nonrow_50g = df_time_protein_nonrow %>%
+  mutate(hr_per_50g_protein = hr_per_cap_day / pro_per_cap_day * 50)
+
+label_partial_nonrow_50g = df_time_protein_nonrow_50g %>%
+  group_by(country) %>%
+  slice_max(hr_per_50g_protein, n = 1, with_ties = FALSE)
+
+p4_nonrow_50g = ggplot(df_time_protein_nonrow_50g, aes(x = pro_per_cap_day, y = hr_per_50g_protein)) +
+  geom_line(aes(group = country), color = "grey60", linewidth = 1.1) +
+  geom_point(aes(color = type), size = 2.5) +
+  ggrepel::geom_text_repel(
+    data = label_partial_nonrow_50g,
+    aes(label = country), size = 3, fontface = "bold", max.overlaps = 20, show.legend = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Protein supply (g/cap/day)", y = "Food provisioning time per 50 g protein (hr/50g)",
+       color = "Gender") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_nonrow_50g)
+
+# Same as p4_nonrow_50g, but adds indirect (non-food-sector) domestic labor --
+# transport, packaging, etc. embodied in domestically-produced food -- on top
+# of the direct food-sector + household time already in hr_per_cap_day. Non-
+# food is EXIO-region-resolved (summary_nonfood_df), so for these non-RoW
+# countries each has its own 1:1 region (iso_to_region); domestic_per_capita
+# there is already hr/cap/day, same units/convention as the food side (see
+# country_summary()/region_summary()). Both the food-only and food+indirect
+# values are kept and plotted (open vs. filled point, joined by a thin colored
+# segment) so the added indirect component stays visible per point, not just
+# folded silently into a bigger total.
+nonfood_domestic_nonrow = summary_nonfood_df %>%
+  filter(type %in% c("hr_m", "hr_f"), !is_row) %>%
+  select(exio_region, type, hr_per_cap_day_nonfood = domestic_per_capita)
+
+df_time_protein_nonrow_indirect = df_time_protein_nonrow_50g %>%
+  mutate(exio_region = iso_to_region[as.character(country)]) %>%
+  left_join(nonfood_domestic_nonrow, by = c("exio_region", "type")) %>%
+  mutate(hr_per_cap_day_nonfood    = replace_na(hr_per_cap_day_nonfood, 0),
+         hr_per_50g_protein_direct = hr_per_50g_protein,
+         hr_per_50g_protein_total  = (hr_per_cap_day + hr_per_cap_day_nonfood) / pro_per_cap_day * 50)
+
+label_partial_nonrow_indirect = df_time_protein_nonrow_indirect %>%
+  group_by(country) %>%
+  slice_max(hr_per_50g_protein_total, n = 1, with_ties = FALSE)
+
+df_components_nonrow_indirect = df_time_protein_nonrow_indirect %>%
+  select(country, type, pro_per_cap_day,
+         direct = hr_per_50g_protein_direct, total = hr_per_50g_protein_total) %>%
+  pivot_longer(c(direct, total), names_to = "component", values_to = "hr_per_50g_protein") %>%
+  mutate(component = factor(component, levels = c("direct", "total"),
+                            labels = c("Food (direct)", "+ Non-food (indirect)")))
+
+p4_nonrow_50g_indirect = ggplot(df_components_nonrow_indirect,
+                                aes(x = pro_per_cap_day, y = hr_per_50g_protein)) +
+  geom_line(data = df_time_protein_nonrow_indirect,
+            aes(x = pro_per_cap_day, y = hr_per_50g_protein_total, group = country),
+            color = "grey60", linewidth = 1.1, inherit.aes = FALSE) +
+  geom_segment(data = df_time_protein_nonrow_indirect,
+              aes(x = pro_per_cap_day, xend = pro_per_cap_day,
+                  y = hr_per_50g_protein_direct, yend = hr_per_50g_protein_total, color = type),
+              linewidth = 0.7, alpha = 0.5, inherit.aes = FALSE) +
+  geom_point(aes(color = type, shape = component), size = 2.5) +
+  ggrepel::geom_text_repel(
+    data = label_partial_nonrow_indirect,
+    aes(x = pro_per_cap_day, y = hr_per_50g_protein_total, label = country),
+    size = 3, fontface = "bold", max.overlaps = 20, show.legend = FALSE, inherit.aes = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
+                      labels = c(hr_f = "Female", hr_m = "Male")) +
+  scale_shape_manual(values = c("Food (direct)" = 1, "+ Non-food (indirect)" = 16)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Protein supply (g/cap/day)",
+       y = "Domestic food provisioning time per 50 g protein (hr/50g)",
+       color = "Gender", shape = "Effort component") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_nonrow_50g_indirect)
+
+# Table version of the same food/non-food split, by non-RoW country and gender
+# -- this time also separating food-sector paid (economic: domestic_per_capita
+# + preparation_econ, the FABIO/EXIO labor satellite + GHD's paid food-service
+# time) from unpaid (household non-econ: preparation/processing/growth_
+# collection, GHD's time-use time), and adding total daily protein supply as
+# its own column (the un-normalized denominator, alongside the hr/50g rates).
+food_time_split_nonrow = partial_df %>%
+  filter(!is_row, type %in% c("hr_m", "hr_f"),
+         !footprint_type %in% c("export_per_capita", "import_per_capita")) %>%
+  mutate(pay_type = ifelse(grepl("non\\.econ", footprint_type), "unpaid_food_hr", "paid_food_hr"),
+         country = as.character(country)) %>%
+  group_by(country, type, pay_type) %>%
+  summarise(hr_per_cap_day = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = pay_type, values_from = hr_per_cap_day, values_fill = 0)
+
+table_food_nonfood_50g = food_time_split_nonrow %>%
+  left_join(pro_partial %>% mutate(country = as.character(country)), by = "country") %>%
+  mutate(exio_region = iso_to_region[country]) %>%
+  left_join(nonfood_domestic_nonrow, by = c("exio_region", "type")) %>%
+  mutate(hr_per_cap_day_nonfood = replace_na(hr_per_cap_day_nonfood, 0),
+         gender = ifelse(type == "hr_f", "Female", "Male"),
+         unpaid_food_hr_per_50g = unpaid_food_hr / pro_per_cap_day * 50,
+         paid_food_hr_per_50g   = paid_food_hr   / pro_per_cap_day * 50,
+         nonfood_hr_per_50g     = hr_per_cap_day_nonfood / pro_per_cap_day * 50,
+         nonfood_share = nonfood_hr_per_50g / (paid_food_hr_per_50g + nonfood_hr_per_50g) * 100,
+         total_hr_per_50g       = unpaid_food_hr_per_50g + paid_food_hr_per_50g + nonfood_hr_per_50g) %>%
+  select(country, gender, protein_g_per_cap_day = pro_per_cap_day,
+         unpaid_food_hr_per_50g, paid_food_hr_per_50g, nonfood_hr_per_50g, nonfood_share, total_hr_per_50g) %>%
+  arrange(desc(total_hr_per_50g))
+
+gt_food_nonfood_50g = table_food_nonfood_50g %>%
+  gt() %>%
+  fmt_number(columns = protein_g_per_cap_day, decimals = 1) %>%
+  fmt_number(columns = c(unpaid_food_hr_per_50g, paid_food_hr_per_50g, nonfood_hr_per_50g, total_hr_per_50g), decimals = 3) %>%
+  cols_label(country = "Country", gender = "Gender",
+             protein_g_per_cap_day = "Protein supply (g/cap/day)",
+             unpaid_food_hr_per_50g = "Food, unpaid (household), hr/50g",
+             paid_food_hr_per_50g = "Food, paid (economic), hr/50g",
+             nonfood_hr_per_50g = "Non-food, paid (indirect), hr/50g",
+             nonfood_share = "Non-food share of total paid, %",
+             total_hr_per_50g = "Total, hr/50g") %>%
+  tab_header(title = "Domestic effort per 50 g protein: unpaid food, paid food, and non-food sector",
+             subtitle = paste0("Non-RoW countries, ", year))
+print(gt_food_nonfood_50g)
+
 # Domestic-only variant: domestic + household time (same as above) vs. FABIO's
 # domestic-only protein supply (instead of FAO's domestic+import national total)
 pro_domestic_partial = country_summary(agg_country_footprint(FABIO_y_hh_pro)) %>%
@@ -707,7 +836,11 @@ ggsave("results/footprint_all_countries.pdf", p_combined, width = 18, height = 1
 ggsave("results/footprint_partial_countries.pdf", p_combined_partial, width = 18, height = 12)
 ggsave("results/protein_vs_time.pdf", p4, width = 16, height = 6)
 ggsave("results/protein_vs_time_nonrow.pdf", p4_nonrow, width = 16, height = 6)
+ggsave("results/protein_vs_time_per50g_nonrow.pdf", p4_nonrow_50g, width = 16, height = 6)
+ggsave("results/protein_vs_time_per50g_nonrow_indirect.pdf", p4_nonrow_50g_indirect, width = 12, height = 6)
 ggsave("results/protein_vs_time_domestic.pdf", p4_domestic, width = 16, height = 6)
+
+
 
 # Same dual-axis figure, restricted to non-RoW countries only
 nonrow_ord = partial_ord[!as.character(partial_ord) %in% row_countries]
@@ -2211,6 +2344,87 @@ protein_import_share = summary_pro_df_long %>%
     .groups = "drop"
   )
 
+# Female-only version of p4_nonrow_50g_indirect: one point per country (total
+# domestic food + non-food hr/50g protein, already a single row per country
+# for type == "hr_f" in df_time_protein_nonrow_indirect), dot size instead
+# encodes protein_import_share rather than splitting direct vs. indirect.
+df_female_50g_importshare = df_time_protein_nonrow_indirect %>%
+  filter(type == "hr_f") %>%
+  mutate(country = as.character(country)) %>%
+  left_join(protein_import_share, by = "country") %>%
+  left_join(table_food_nonfood_50g %>%
+              filter(gender == "Female") %>%
+              select(country, unpaid_food_hr_per_50g, paid_food_hr_per_50g, nonfood_hr_per_50g),
+            by = "country") %>%
+  drop_na(protein_import_share) %>%
+  mutate(unpaid_share = unpaid_food_hr_per_50g / hr_per_50g_protein_total,
+         paid_share = (paid_food_hr_per_50g + nonfood_hr_per_50g) / hr_per_50g_protein_total)
+
+p4_female_50g_importshare = ggplot(df_female_50g_importshare,
+                                    aes(x = pro_per_cap_day, y = hr_per_50g_protein_total)) +
+  geom_point(aes(size = protein_import_share), color = "#ca2323", alpha = 0.8) +
+  ggrepel::geom_text_repel(
+    aes(label = country), size = 3, fontface = "bold", max.overlaps = 20, show.legend = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_size_continuous(labels = scales::percent, range = c(1.5, 8)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Total protein supply (g/cap/day)",
+       y = "Domestic food provisioning time per 50 g protein (hr/50g)",
+       size = "Protein import share",
+       title = "Female: paid & unpaid time per 50 g protein, sized by protein import share") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_female_50g_importshare)
+ggsave(paste0("results/protein_vs_time_per50g_nonrow_indirect_importshare.pdf"), p4_female_50g_importshare, width = 15, height = 8)
+
+# dev.new()
+# ppp= ggplot(df_female_50g_importshare, aes(x = protein_import_share, y = unpaid_share)) +
+#   geom_point(color = "#ca2323", size = 2.5) +
+#   ggrepel::geom_text_repel(aes(label = country), size = 3, max.overlaps = 20) +
+#   scale_x_continuous(labels = scales::percent) +
+#   scale_y_continuous(labels = scales::percent) +
+#   labs(x = "Protein import share", y = "Unpaid share of time per 50 g protein",
+#        title = "Female: unpaid share vs. protein import share") +
+#   theme_minimal()
+# print(ppp)
+# ggsave(paste0("results/ppp.pdf"), ppp, width = 15, height = 8)
+
+# Same female country set/axes as p4_female_50g_importshare (x = protein
+# supply, y = hr/50g protein), but each country is a stacked bar (unpaid food
+# / paid food / paid non-food) instead of a single dot -- bar width is a
+# fraction of the x range since pro_per_cap_day is continuous, not discrete.
+df_female_stack = df_female_50g_importshare %>%
+  select(country, pro_per_cap_day, unpaid_food_hr_per_50g, paid_food_hr_per_50g, nonfood_hr_per_50g) %>%
+  pivot_longer(cols = c(unpaid_food_hr_per_50g, paid_food_hr_per_50g, nonfood_hr_per_50g),
+               names_to = "component", values_to = "hr_per_50g_protein") %>%
+  mutate(component = factor(component,
+                             levels = c("unpaid_food_hr_per_50g", "paid_food_hr_per_50g", "nonfood_hr_per_50g"),
+                             labels = c("Unpaid food (household)", "Paid food (economic)", "Paid non-food (indirect)")))
+
+bar_width_female = diff(range(df_female_stack$pro_per_cap_day, na.rm = TRUE)) / 60
+
+p4_female_50g_stack = ggplot(df_female_stack, aes(x = pro_per_cap_day, y = hr_per_50g_protein, fill = component)) +
+  geom_col(aes(group = country),
+           position = position_dodge2(width = bar_width_female, padding = 0.1, preserve = "single"),
+           width = bar_width_female, alpha = 0.85, color = "white", linewidth = 0.15) +
+  ggrepel::geom_text_repel(
+    data = df_female_50g_importshare,
+    aes(x = pro_per_cap_day, y = hr_per_50g_protein_total, label = country),
+    size = 3, fontface = "bold", max.overlaps = 20, inherit.aes = FALSE) +
+  geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
+  scale_fill_manual(values = c("Unpaid food (household)" = "#ca2323",
+                                "Paid food (economic)" = "#f4a582",
+                                "Paid non-food (indirect)" = "#4393c3")) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Total protein supply (g/cap/day)",
+       y = "Domestic food provisioning time per 50 g protein (hr/50g)",
+       fill = "Component",
+       title = "Female: unpaid/paid-food/paid-non-food time per 50 g protein") +
+  theme_minimal()
+dev.new(width = 16, height = 6)
+print(p4_female_50g_stack)
+ggsave(paste0("results/protein_vs_time_per50g_nonrow_indirect_stack.pdf"), p4_female_50g_stack, width = 15, height = 8)
+
 tradeoff_protein_econlabor_importshare = tradeoff_protein_econlabor_noneconsize %>%
   left_join(protein_import_share, by = "country") %>%
   drop_na(protein_import_share) %>%
@@ -2710,6 +2924,12 @@ p_tradeoff_protein_totalecon_domestic_effort = ggplot(
   scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
                       labels = c(hr_f = "Female", hr_m = "Male")) +
   scale_size_continuous(range = c(1, 8)) +
+  # Extra expansion (esp. on the upper end) so the largest points -- up to 8mm
+  # radius via scale_size_continuous above -- don't get clipped by the panel
+  # border when they sit at/near the axis max (default 5% expansion is sized
+  # for point *position*, not point *radius*).
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.12))) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.12))) +
   facet_wrap(~effort_label, nrow = 1, scales = "free") +
   labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
        color = "Gender", size = "g protein/cap/day",
@@ -2770,6 +2990,12 @@ p_tradeoff_protein_foodecon_domestic_effort = ggplot(
   scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
                       labels = c(hr_f = "Female", hr_m = "Male")) +
   scale_size_continuous(range = c(1, 8)) +
+  # Extra expansion (esp. on the upper end) so the largest points -- up to 8mm
+  # radius via scale_size_continuous above -- don't get clipped by the panel
+  # border when they sit at/near the axis max (default 5% expansion is sized
+  # for point *position*, not point *radius*).
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.12))) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.12))) +
   facet_wrap(~effort_label, nrow = 1, scales = "free") +
   labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
        color = "Gender", size = "g protein/cap/day",
@@ -2831,6 +3057,12 @@ p_tradeoff_protein_totalecon_import_effort = ggplot(
   scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
                       labels = c(hr_f = "Female", hr_m = "Male")) +
   scale_size_continuous(range = c(1, 8)) +
+  # Extra expansion (esp. on the upper end) so the largest points -- up to 8mm
+  # radius via scale_size_continuous above -- don't get clipped by the panel
+  # border when they sit at/near the axis max (default 5% expansion is sized
+  # for point *position*, not point *radius*).
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.12))) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.12))) +
   facet_wrap(~effort_label, nrow = 1, scales = "free") +
   labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
        color = "Gender", size = "g protein/cap/day",
@@ -2887,6 +3119,12 @@ p_tradeoff_protein_foodecon_import_effort = ggplot(
   scale_color_manual(values = c(hr_f = "#ca2323", hr_m = "#1f77b4"),
                       labels = c(hr_f = "Female", hr_m = "Male")) +
   scale_size_continuous(range = c(1, 8)) +
+  # Extra expansion (esp. on the upper end) so the largest points -- up to 8mm
+  # radius via scale_size_continuous above -- don't get clipped by the panel
+  # border when they sit at/near the axis max (default 5% expansion is sized
+  # for point *position*, not point *radius*).
+  scale_x_continuous(expand = expansion(mult = c(0.05, 0.12))) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.12))) +
   facet_wrap(~effort_label, nrow = 1, scales = "free") +
   labs(x = "Energy (MJ / 50 g protein)", y = "Time (hr / 50 g protein)",
        color = "Gender", size = "g protein/cap/day",
