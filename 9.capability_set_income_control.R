@@ -124,3 +124,64 @@ ggsave("results/partial_cf_vs_protein_control_gdp.pdf", p_partial, width = 8, he
 
 fwrite(df %>% select(country, hr_per_50g_protein, g_protein_per_cap_day, gdp_pcap_ppp, gdp_per_worker),
        "output/cf_protein_income_control_data.csv")
+
+#### 6. Mediation decomposition: does GDP work THROUGH CF, or around it? ####
+# The capability-set story puts CF on the causal path, not beside it as a
+# confound: income -> mechanization -> lower CF -> more protein affordable
+# within a fixed time budget. So instead of asking whether CF "survives"
+# controlling for income, decompose income's total effect on protein supply
+# (GDP -> protein) into:
+#   direct effect   (ADE) : GDP -> protein supply, NOT through CF
+#   indirect effect (ACME): GDP -> CF -> protein supply
+# via the classic product-of-coefficients method (Baron & Kenny 1986), with
+# a Sobel (1982) test for whether the indirect effect differs from zero.
+
+mediation_decomp <- function(df, x_col, m_col, y_col) {
+  keep <- complete.cases(df[c(x_col, m_col, y_col)])
+  x <- df[[x_col]][keep]; m <- df[[m_col]][keep]; y <- df[[y_col]][keep]
+
+  fit_total <- lm(y ~ x)      # total effect of X (income) on Y (protein supply)
+  fit_med   <- lm(m ~ x)      # effect of X on the mediator M (CF)
+  fit_out   <- lm(y ~ x + m)  # effect of M on Y, controlling for X -- also gives the direct effect of X
+
+  a <- unname(coef(fit_med)["x"]);  se_a <- summary(fit_med)$coefficients["x", "Std. Error"]
+  b <- unname(coef(fit_out)["m"]);  se_b <- summary(fit_out)$coefficients["m", "Std. Error"]
+
+  total    <- unname(coef(fit_total)["x"])
+  direct   <- unname(coef(fit_out)["x"])     # ADE
+  indirect <- a * b                          # ACME: total - direct, algebraically identical for OLS
+  se_indirect <- sqrt(b^2 * se_a^2 + a^2 * se_b^2)  # Sobel (1982) first-order delta-method SE
+  z <- indirect / se_indirect
+
+  list(n = length(x), total = total, direct = direct, indirect = indirect,
+       prop_mediated = indirect / total, sobel_z = z, sobel_p = 2 * (1 - pnorm(abs(z))))
+}
+
+med_gdp_pcap   <- mediation_decomp(df, "log_gdp_pcap",   "log_cf", "log_protein")
+med_gdp_worker <- mediation_decomp(df, "log_gdp_worker", "log_cf", "log_protein")
+
+cat("\n---- Mediation decomposition: GDP -> CF -> protein supply ----\n")
+cat(sprintf("Via GDP per capita (PPP):         total = %.3f | direct (ADE) = %.3f | indirect via CF (ACME) = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g), n = %d\n",
+            med_gdp_pcap$total, med_gdp_pcap$direct, med_gdp_pcap$indirect,
+            med_gdp_pcap$prop_mediated * 100, med_gdp_pcap$sobel_z, med_gdp_pcap$sobel_p, med_gdp_pcap$n))
+cat(sprintf("Via GDP per worker (labor prod.): total = %.3f | direct (ADE) = %.3f | indirect via CF (ACME) = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g), n = %d\n",
+            med_gdp_worker$total, med_gdp_worker$direct, med_gdp_worker$indirect,
+            med_gdp_worker$prop_mediated * 100, med_gdp_worker$sobel_z, med_gdp_worker$sobel_p, med_gdp_worker$n))
+
+# Optional cross-check with bootstrapped ACME/ADE (Imai et al.), if installed --
+# handles the small-sample non-normality of the indirect effect's distribution
+# better than the Sobel test's normal approximation above.
+if (requireNamespace("mediation", quietly = TRUE)) {
+  set.seed(1)
+  fit_m <- lm(log_cf ~ log_gdp_pcap, data = df)
+  fit_y <- lm(log_protein ~ log_gdp_pcap + log_cf, data = df)
+  med_boot <- mediation::mediate(fit_m, fit_y, treat = "log_gdp_pcap", mediator = "log_cf",
+                                  boot = TRUE, sims = 1000)
+  cat("\n[mediation package cross-check, GDP per capita, bootstrapped]\n")
+  print(summary(med_boot))
+}
+
+fwrite(data.frame(control = c("gdp_pcap_ppp", "gdp_per_worker"),
+                   rbind(as.data.frame(med_gdp_pcap[c("n", "total", "direct", "indirect", "prop_mediated", "sobel_z", "sobel_p")]),
+                         as.data.frame(med_gdp_worker[c("n", "total", "direct", "indirect", "prop_mediated", "sobel_z", "sobel_p")]))),
+       "output/mediation_decomposition.csv")
