@@ -195,6 +195,17 @@ fwrite(data.frame(control = c("gdp_pcap_ppp", "gdp_per_worker"),
 # average of protein supply and GDP across whichever of ITS FABIO members
 # have usable GHD + WDI data (paired with the aggregate's one CF value).
 #
+# The aggregate's pasted EXIO value is the underlying labor INTENSITY (hours
+# per unit of output), not the final per-capita CF ratio -- member countries
+# still consume different quantities/diet mixes, so hr_per_50g_protein
+# genuinely varies country-to-country even within one aggregate. So the
+# ratio itself can't just be averaged across members (that would treat
+# unequal per-capita totals as if they carried equal weight, a classic
+# Simpson's-paradox trap) -- instead population-weight hours/cap/day and
+# grams-protein/cap/day separately, then take the ratio of those two
+# regional totals, the same way hr_per_50g_protein is derived at country
+# level elsewhere in this pipeline.
+#
 # Caveat this does NOT fix: FABIO_reg assigns every non-EXIO-modeled country
 # to one of 5 RoW aggregates, but most members lack GHD time-use data, WDI
 # coverage, or both -- so even this collapsed point is built from a subset,
@@ -215,22 +226,23 @@ row_full_pop <- row_lookup %>%
 row_collapsed <- tradeoff_protein_allwork_consump %>%
   filter(is_row) %>%
   group_by(country) %>%
-  summarise(hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE),
+  summarise(hr_per_cap_day = sum(hr_per_cap_day, na.rm = TRUE),
             g_protein_per_cap_day = first(g_protein_per_cap_day),
             .groups = "drop") %>%
   inner_join(wdi_latest, by = c("country" = "iso3c")) %>%
-  filter(hr_per_50g_protein > 0, g_protein_per_cap_day > 0) %>%
+  filter(hr_per_cap_day > 0, g_protein_per_cap_day > 0) %>%
   left_join(row_lookup, by = "country") %>%
   left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
   filter(!is.na(population), population > 0) %>%
   group_by(exio_region) %>%
   summarise(n_members_used = n(),
             pop_used = sum(population),
-            hr_per_50g_protein    = unique(hr_per_50g_protein),  # identical within an aggregate by construction
+            hr_per_cap_day_region = weighted.mean(hr_per_cap_day, population),
             g_protein_per_cap_day = weighted.mean(g_protein_per_cap_day, population),
             gdp_pcap_ppp          = weighted.mean(gdp_pcap_ppp, population, na.rm = TRUE),
             gdp_per_worker        = weighted.mean(gdp_per_worker, population, na.rm = TRUE),
             .groups = "drop") %>%
+  mutate(hr_per_50g_protein = hr_per_cap_day_region / g_protein_per_cap_day * 50) %>%
   left_join(row_full_pop, by = "exio_region") %>%
   mutate(pop_coverage_pct = pop_used / pop_total_region * 100)
 
