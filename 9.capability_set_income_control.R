@@ -185,3 +185,94 @@ fwrite(data.frame(control = c("gdp_pcap_ppp", "gdp_per_worker"),
                    rbind(as.data.frame(med_gdp_pcap[c("n", "total", "direct", "indirect", "prop_mediated", "sobel_z", "sobel_p")]),
                          as.data.frame(med_gdp_worker[c("n", "total", "direct", "indirect", "prop_mediated", "sobel_z", "sobel_p")]))),
        "output/mediation_decomposition.csv")
+
+#### 7. Robustness: collapse each RoW aggregate to ONE population-weighted point ####
+# The all-countries run (n=54) pastes each RoW aggregate's single CF value
+# across ~20 countries -- a handful of leverage points at the low-income tail,
+# not ~20 independent ones. Dropping RoW entirely (n=33, EXIO-modeled
+# countries only) instead discards the low/mid-income tail of the world.
+# Middle ground: one row per RoW aggregate, built from a population-weighted
+# average of protein supply and GDP across whichever of ITS FABIO members
+# have usable GHD + WDI data (paired with the aggregate's one CF value).
+#
+# Caveat this does NOT fix: FABIO_reg assigns every non-EXIO-modeled country
+# to one of 5 RoW aggregates, but most members lack GHD time-use data, WDI
+# coverage, or both -- so even this collapsed point is built from a subset,
+# not the aggregate's full membership, and that subset likely skews toward
+# whichever countries have better statistical infrastructure (correlated
+# with income). `pop_coverage_pct` reports how much of each aggregate's
+# total population that subset represents, so this is a visible number
+# rather than an assumption.
+
+row_lookup <- FABIO_reg %>% transmute(country = ISO, exio_region = EXIOBASE)
+
+row_full_pop <- row_lookup %>%
+  filter(grepl("RoW", exio_region)) %>%
+  left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
+  group_by(exio_region) %>%
+  summarise(pop_total_region = sum(population, na.rm = TRUE), .groups = "drop")
+
+row_collapsed <- tradeoff_protein_allwork_consump %>%
+  filter(is_row) %>%
+  group_by(country) %>%
+  summarise(hr_per_50g_protein = sum(hr_per_50g_protein, na.rm = TRUE),
+            g_protein_per_cap_day = first(g_protein_per_cap_day),
+            .groups = "drop") %>%
+  inner_join(wdi_latest, by = c("country" = "iso3c")) %>%
+  filter(hr_per_50g_protein > 0, g_protein_per_cap_day > 0) %>%
+  left_join(row_lookup, by = "country") %>%
+  left_join(pop_data_yr, by = c("country" = "iso3c")) %>%
+  filter(!is.na(population), population > 0) %>%
+  group_by(exio_region) %>%
+  summarise(n_members_used = n(),
+            pop_used = sum(population),
+            hr_per_50g_protein    = unique(hr_per_50g_protein),  # identical within an aggregate by construction
+            g_protein_per_cap_day = weighted.mean(g_protein_per_cap_day, population),
+            gdp_pcap_ppp          = weighted.mean(gdp_pcap_ppp, population, na.rm = TRUE),
+            gdp_per_worker        = weighted.mean(gdp_per_worker, population, na.rm = TRUE),
+            .groups = "drop") %>%
+  left_join(row_full_pop, by = "exio_region") %>%
+  mutate(pop_coverage_pct = pop_used / pop_total_region * 100)
+
+cat("\n---- RoW-aggregate collapse: population coverage of the subset used ----\n")
+print(row_collapsed %>% select(exio_region, n_members_used, pop_coverage_pct) %>%
+        mutate(pop_coverage_pct = round(pop_coverage_pct, 1)))
+
+df_collapsed <- bind_rows(
+  df %>% select(country, hr_per_50g_protein, g_protein_per_cap_day, gdp_pcap_ppp, gdp_per_worker),
+  row_collapsed %>% select(country = exio_region, hr_per_50g_protein, g_protein_per_cap_day, gdp_pcap_ppp, gdp_per_worker)
+) %>%
+  mutate(log_cf         = log(hr_per_50g_protein),
+         log_protein    = log(g_protein_per_cap_day),
+         log_gdp_pcap   = log(gdp_pcap_ppp),
+         log_gdp_worker = log(gdp_per_worker))
+
+cat(sprintf("\nCollapsed sample: %d EXIO-modeled countries + %d RoW-aggregate points = %d rows\n",
+            nrow(df), nrow(row_collapsed), nrow(df_collapsed)))
+
+zero_order_c    <- cor.test(df_collapsed$log_cf, df_collapsed$log_protein)
+pc_gdp_pcap_c   <- partial_cor(df_collapsed$log_cf, df_collapsed$log_protein, df_collapsed$log_gdp_pcap)
+pc_gdp_worker_c <- partial_cor(df_collapsed$log_cf, df_collapsed$log_protein, df_collapsed$log_gdp_worker)
+
+cat("\n---- [RoW-collapsed] CF vs. protein supply, log-log ----\n")
+cat(sprintf("Zero-order r                              = %.3f (p = %.3g, n = %d)\n",
+            zero_order_c$estimate, zero_order_c$p.value, nrow(df_collapsed)))
+cat(sprintf("Partial r | GDP per capita (PPP)           = %.3f (p = %.3g, n = %d)\n",
+            pc_gdp_pcap_c$r, pc_gdp_pcap_c$p, pc_gdp_pcap_c$n))
+cat(sprintf("Partial r | GDP per worker (labor prod.)   = %.3f (p = %.3g, n = %d)\n",
+            pc_gdp_worker_c$r, pc_gdp_worker_c$p, pc_gdp_worker_c$n))
+
+med_gdp_pcap_c   <- mediation_decomp(df_collapsed, "log_gdp_pcap",   "log_cf", "log_protein")
+med_gdp_worker_c <- mediation_decomp(df_collapsed, "log_gdp_worker", "log_cf", "log_protein")
+
+cat("\n---- [RoW-collapsed] Mediation decomposition: GDP -> CF -> protein supply ----\n")
+cat(sprintf("Via GDP per capita (PPP):         total = %.3f | direct (ADE) = %.3f | indirect via CF (ACME) = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g), n = %d\n",
+            med_gdp_pcap_c$total, med_gdp_pcap_c$direct, med_gdp_pcap_c$indirect,
+            med_gdp_pcap_c$prop_mediated * 100, med_gdp_pcap_c$sobel_z, med_gdp_pcap_c$sobel_p, med_gdp_pcap_c$n))
+cat(sprintf("Via GDP per worker (labor prod.): total = %.3f | direct (ADE) = %.3f | indirect via CF (ACME) = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g), n = %d\n",
+            med_gdp_worker_c$total, med_gdp_worker_c$direct, med_gdp_worker_c$indirect,
+            med_gdp_worker_c$prop_mediated * 100, med_gdp_worker_c$sobel_z, med_gdp_worker_c$sobel_p, med_gdp_worker_c$n))
+
+fwrite(row_collapsed %>% select(exio_region, n_members_used, pop_used, pop_total_region, pop_coverage_pct,
+                                hr_per_50g_protein, g_protein_per_cap_day, gdp_pcap_ppp, gdp_per_worker),
+       "output/row_aggregate_collapse_coverage.csv")
