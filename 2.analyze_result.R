@@ -2401,15 +2401,36 @@ df_female_stack = df_female_50g_importshare %>%
                              levels = c("unpaid_food_hr_per_50g", "paid_food_hr_per_50g", "nonfood_hr_per_50g"),
                              labels = c("Unpaid food (household)", "Paid food (economic)", "Paid non-food (indirect)")))
 
-bar_width_female = diff(range(df_female_stack$pro_per_cap_day, na.rm = TRUE)) / 60
+bar_width_female = diff(range(df_female_stack$pro_per_cap_day, na.rm = TRUE)) / 80
 
-p4_female_50g_stack = ggplot(df_female_stack, aes(x = pro_per_cap_day, y = hr_per_50g_protein, fill = component)) +
-  geom_col(aes(group = country),
-           position = position_dodge2(width = bar_width_female, padding = 0.1, preserve = "single"),
-           width = bar_width_female, alpha = 0.85, color = "white", linewidth = 0.15) +
+# Two countries (e.g. RUS/ESP) can land close enough in pro_per_cap_day that
+# their bars overlap/stack on top of each other visually. Each country's own
+# bar must stay a normal stacked column (unpaid + paid-food + paid-non-food
+# on top of each other) -- position_dodge2 would instead dodge the three fill
+# segments apart *within* a country, breaking the stack. So resolve x-axis
+# collisions manually instead: walk countries left to right by protein supply
+# and nudge a country rightward only when it's closer than one bar width to
+# its left neighbor's (already-resolved) position.
+country_x_dodge = df_female_stack %>%
+  distinct(country, pro_per_cap_day) %>%
+  arrange(pro_per_cap_day) %>%
+  mutate(pro_per_cap_day_dodge = pro_per_cap_day)
+min_gap_female = bar_width_female * 1.1
+for (i in seq_len(nrow(country_x_dodge))[-1]) {
+  if (country_x_dodge$pro_per_cap_day_dodge[i] - country_x_dodge$pro_per_cap_day_dodge[i - 1] < min_gap_female) {
+    country_x_dodge$pro_per_cap_day_dodge[i] = country_x_dodge$pro_per_cap_day_dodge[i - 1] + min_gap_female
+  }
+}
+df_female_stack = df_female_stack %>%
+  left_join(country_x_dodge %>% select(country, pro_per_cap_day_dodge), by = "country")
+df_female_50g_importshare_dodge = df_female_50g_importshare %>%
+  left_join(country_x_dodge %>% select(country, pro_per_cap_day_dodge), by = "country")
+
+p4_female_50g_stack = ggplot(df_female_stack, aes(x = pro_per_cap_day_dodge, y = hr_per_50g_protein, fill = component)) +
+  geom_col(aes(group = country), width = bar_width_female, alpha = 0.85, color = "white", linewidth = 0.15) +
   ggrepel::geom_text_repel(
-    data = df_female_50g_importshare,
-    aes(x = pro_per_cap_day, y = hr_per_50g_protein_total, label = country),
+    data = df_female_50g_importshare_dodge,
+    aes(x = pro_per_cap_day_dodge, y = hr_per_50g_protein_total, label = country),
     size = 3, fontface = "bold", max.overlaps = 20, inherit.aes = FALSE) +
   geom_vline(xintercept = 50, linetype = "dashed", color = "red") +
   scale_fill_manual(values = c("Unpaid food (household)" = "#ca2323",
