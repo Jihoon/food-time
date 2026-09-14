@@ -96,3 +96,9 @@ All results are decomposed into **domestic**, **export** (origin country's footp
 
 ### Dependencies
 Core packages: `mrio`, `tidyverse`, `Matrix`, `data.table`, `readxl`, `gt`, `countrypops`
+
+<!-- Mozart infrastructure — do not edit this block -->
+<!-- Mozart root: C:\Users\min\mozart -->
+This project uses Mozart (`C:\Users\min\mozart`) for Claude Code infrastructure.
+All conventions, rules, and identity are loaded from `.claude/rules/`.
+<!-- End Mozart infrastructure -->
