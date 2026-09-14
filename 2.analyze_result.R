@@ -923,15 +923,20 @@ p_combined_nonfood[[3]] <- p_combined_nonfood[[3]] +
 
 ggsave("results/footprint_nonfood_countries.pdf", p_combined_nonfood, width = 18, height = 18)
 
-# Plot directly-modelled EXIO countries only (non-RoW)
+# Plot directly-modelled EXIO countries only (non-RoW), and restricted to
+# countries with GHD non-econ (household) time data -- partial_cty, defined
+# above -- so every bar here actually has a yellow (unpaid time) component;
+# b/b_nonfood/b_import below all key off direct_ord's factor levels, so any
+# country dropped here (e.g. IDN, PRT, HRV, ..., TWN) automatically drops out
+# of the plot as an NA factor level rather than needing a separate filter.
 direct_ord = (summary_food_df_long_with_ghd %>%
-  filter(!is_row, type == "hr_f") %>%
+  filter(!is_row, type == "hr_f", country %in% partial_cty) %>%
   group_by(country) %>%
   summarise(d = sum(per_capita_value, na.rm = TRUE)) %>%
   arrange(-d))$country
 
 b = summary_food_df_long_with_ghd %>%
-  filter(!is_row, footprint_type != "import_per_capita") %>%
+  filter(!is_row, footprint_type != "import_per_capita", as.character(country) %in% direct_ord) %>%
   mutate(country = factor(country, levels = direct_ord))
 
 # Add non-food-sector domestic/export time (labor in packaging, transport, etc.
@@ -949,7 +954,9 @@ b = summary_food_df_long_with_ghd %>%
 # ("CHN"), silently sending every bar's x position to NA instead of erroring.
 b_nonfood = summary_nonfood_df_long %>%
   filter(!is_row, type %in% c("hr_f", "hr_m"), footprint_type != "import_per_capita") %>%
-  mutate(country = factor(region_to_iso_1to1[as.character(exio_region)], levels = direct_ord),
+  mutate(country = region_to_iso_1to1[as.character(exio_region)]) %>%
+  filter(country %in% direct_ord) %>%
+  mutate(country = factor(country, levels = direct_ord),
          footprint_type = paste0(as.character(footprint_type), "_nf"))
 
 # Continent-of-origin breakdown of the import component -----------------------------
@@ -1028,8 +1035,34 @@ stack_totals_direct = b_direct %>%
 y_max_direct =  max(stack_totals_direct$total[stack_totals_direct$part == "pos"], na.rm = TRUE) * 1.1
 y_min_direct = -max(stack_totals_direct$total[stack_totals_direct$part == "neg"], na.rm = TRUE) * 1.1
 
-p_hr_f_direct = plot_countries(b_direct %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
-p_hr_m_direct_base = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") + ylim(y_min_direct, y_max_direct)
+# Protein supply (female panel) / undernourishment prevalence (male panel) dots,
+# same construction as pro_partial/und_partial above but re-keyed to direct_ord
+# (this plot's own country set/order, which includes non-food + import bars and
+# so isn't identical to partial_ord) and scaled against y_max_direct -- the
+# actual positive-stack ceiling of these bars -- instead of a fixed 3.5 ylim.
+pro_direct = country_summary(agg_country_footprint(FABIO_y_hh_pro)) %>%
+  left_join(fao_pro_lookup, by = "country") %>%
+  filter(as.character(country) %in% as.character(direct_ord)) %>%
+  mutate(country = factor(as.character(country), levels = as.character(direct_ord))) %>%
+  select(country, pro_per_cap_day)
+pro_scale_direct = (y_max_direct * 0.9) / max(pro_direct$pro_per_cap_day, na.rm = TRUE)
+
+und_direct = tibble(country = as.character(direct_ord)) %>%
+  left_join(fao_und_lookup, by = "country") %>%
+  mutate(country = factor(country, levels = as.character(direct_ord))) %>%
+  select(country, undernourishment_pct)
+und_scale_direct = (y_max_direct * 0.9) / max(und_direct$undernourishment_pct, na.rm = TRUE)
+
+p_hr_f_direct = plot_countries(b_direct %>% filter(type == "hr_f"), "Female time footprint per capita (hr/day)", "") +
+  geom_point(data = pro_direct, aes(x = country, y = pro_per_cap_day * pro_scale_direct),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(y_min_direct, y_max_direct),
+                      sec.axis = sec_axis(~ . / pro_scale_direct, name = "g protein/cap/day"))
+p_hr_m_direct_base = plot_countries(b_direct %>% filter(type == "hr_m"), "Male time footprint per capita (hr/day)", "") +
+  geom_point(data = und_direct, aes(x = country, y = undernourishment_pct * und_scale_direct),
+             color = "black", size = 2.5, inherit.aes = FALSE) +
+  scale_y_continuous(limits = c(y_min_direct, y_max_direct),
+                      sec.axis = sec_axis(~ . / und_scale_direct, name = "Prevalence of undernourishment (%)"))
 
 # LUX (male) has by far the largest import-effort bar (drives y_min_direct itself --
 # see the y-axis scaling fix above) and its continent-of-origin makeup isn't obvious

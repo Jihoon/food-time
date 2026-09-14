@@ -3,3 +3,7 @@
 .RData
 .Ruserdata
 Writing/
+
+# Mozart-injected (mirrors of the Mozart repo)
+.claude/
+CLAUDE.md
