@@ -42,3 +42,29 @@ gdp_interaction_test(df, "EXIO-only", "log_gdp_worker")
 cat("\n\n#### GDP x CF interaction: RoW-collapsed (n=38) ####\n")
 gdp_interaction_test(df_collapsed, "RoW-collapsed", "log_gdp_pcap")
 gdp_interaction_test(df_collapsed, "RoW-collapsed", "log_gdp_worker")
+
+#### Marginal effect of CF on protein at representative income levels ####
+#### ($2,000 and $49,000 per capita), GDP per capita only (the income     ####
+#### measure the paper actually uses, Methods) -- separately at n=33 and  ####
+#### n=38, so the two are no longer reported only as a combined range.    ####
+#### dY/dM = gamma_2 + gamma_3 * X, X = log(income level).                ####
+
+marginal_effect_at <- function(data, label, income_levels = c(2000, 49000)) {
+  fit <- lm(log_protein ~ log_gdp_pcap * log_cf, data = data)
+  g2 <- unname(coef(fit)["log_cf"])
+  g3 <- unname(coef(fit)["log_gdp_pcap:log_cf"])
+  V  <- vcov(fit)
+  cat(sprintf("\n==== %s (n = %d): marginal effect of CF on protein, by income level ====\n", label, nrow(data)))
+  for (x in income_levels) {
+    lx <- log(x)
+    me <- g2 + g3 * lx
+    # Var(g2 + g3*lx) = Var(g2) + lx^2*Var(g3) + 2*lx*Cov(g2,g3)
+    se <- sqrt(V["log_cf", "log_cf"] + lx^2 * V["log_gdp_pcap:log_cf", "log_gdp_pcap:log_cf"] +
+                 2 * lx * V["log_cf", "log_gdp_pcap:log_cf"])
+    cat(sprintf("  at $%s/capita: marginal effect = %.4f (SE %.4f)\n", format(x, big.mark = ","), me, se))
+  }
+  invisible(fit)
+}
+
+marginal_effect_at(df, "EXIO-only")
+marginal_effect_at(df_collapsed, "RoW-collapsed")

@@ -65,6 +65,16 @@ df2_collapsed <- bind_rows(
 cat(sprintf("\nCollapsed energy-CF sample: %d EXIO-modeled + %d RoW-aggregate points = %d rows\n",
             nrow(df2), nrow(row_collapsed_energy), nrow(df2_collapsed)))
 
+#### 1b. CF_time vs. CF_energy correlation, n=38 -- the draft currently  ####
+#### only reports this at n=33 (9m: r=-0.53, p=0.002); this fills in the ####
+#### RoW-collapsed counterpart so that number can be reported on its own ####
+#### rather than as a combined range.                                   ####
+
+cor_cf_time_energy_c <- cor.test(df2_collapsed$log_cf, df2_collapsed$log_cf_energy)
+cat(sprintf("\n[RoW-collapsed] Correlation between CF_time and CF_energy (log-log): r = %.3f (p = %.3g, n = %d)\n",
+            cor_cf_time_energy_c$estimate, cor_cf_time_energy_c$p.value, nrow(df2_collapsed)))
+cat("(compare against EXIO-only, n=33: r = -0.53, p = 0.002)\n")
+
 #### 2. GDP x CF_energy interaction, n=38 (compare against 9n's n=33 result) ####
 
 fit_int_energy_c <- lm(log_protein ~ log_gdp_pcap * log_cf_energy, data = df2_collapsed)
@@ -92,6 +102,31 @@ cat("Narrower here would confirm the n=33 CI was inflated by leverage-point\n")
 cat("sparsity, not just noise -- and if [5]'s CI excludes zero where [4]'s\n")
 cat("didn't, that's a real, reportable update to the draft, not a reversal\n")
 cat("of the bootstrap finding, an extension of it with better data.\n")
+
+#### 3b. Marginal effect of CF_energy on protein at representative income ####
+#### levels ($2,000 and $49,000/capita), same calculation as 9d's for      ####
+#### CF_time -- the draft currently only states the CF_energy interaction  ####
+#### is "positive at low income, negative at high income" qualitatively,   ####
+#### without the matching numbers CF_time got. Both samples, for parity.   ####
+
+marginal_effect_at_energy <- function(data, label, income_levels = c(2000, 49000)) {
+  fit <- lm(log_protein ~ log_gdp_pcap * log_cf_energy, data = data)
+  g2 <- unname(coef(fit)["log_cf_energy"])
+  g3 <- unname(coef(fit)["log_gdp_pcap:log_cf_energy"])
+  V  <- vcov(fit)
+  cat(sprintf("\n==== %s (n = %d): marginal effect of CF_energy on protein, by income level ====\n", label, nrow(data)))
+  for (x in income_levels) {
+    lx <- log(x)
+    me <- g2 + g3 * lx
+    se <- sqrt(V["log_cf_energy", "log_cf_energy"] + lx^2 * V["log_gdp_pcap:log_cf_energy", "log_gdp_pcap:log_cf_energy"] +
+                 2 * lx * V["log_cf_energy", "log_gdp_pcap:log_cf_energy"])
+    cat(sprintf("  at $%s/capita: marginal effect = %.4f (SE %.4f)\n", format(x, big.mark = ","), me, se))
+  }
+  invisible(fit)
+}
+
+marginal_effect_at_energy(df2, "EXIO-only")
+marginal_effect_at_energy(df2_collapsed, "RoW-collapsed")
 
 #### 4. RoW-collapsed (n=38) version of 9m's PARALLEL dual-mediator ACME ####
 #### decomposition (GDP -> {CF_time, CF_energy} -> protein), the source  ####

@@ -23,8 +23,9 @@
 # the standard n=33 country list to restrict CF_paid's n=43 sample
 # against -- and row_lookup, row_full_pop, pop_data_yr, from that
 # script's own RoW-collapse block, needed for the n=38 version further
-# down), and 9o.bootstrap_mediation_and_interaction.R (boot_stat(),
-# report_boot(), R)
+# down), 9o.bootstrap_mediation_and_interaction.R (boot_stat(),
+# report_boot(), R), and 9p.energy_cf_row_collapsed.R (df2_collapsed --
+# needed for section 4, the n=38 CF_paid+CF_energy pairing)
 # in the same session.
 
 library(tidyverse)
@@ -230,3 +231,58 @@ cat("where CF_time didn't -- that's evidence the energy relationship is specific
 cat("about paid labor, not unpaid, resolving the question the Limitations-note\n")
 cat("caveat currently leaves open. If CF_paid looks the same as CF_time, the paid/\n")
 cat("unpaid split isn't where the action is.\n")
+
+#### 4. RoW-collapsed (n=38) version of the CF_paid + CF_energy pair, ####
+#### matching this paper's standard "both country samples" convention  ####
+#### (as extended for the all-work pair in 9p section 4). Uses         ####
+#### cf_paid_df38 (section 1d, above) joined against df2_collapsed     ####
+#### (9p) instead of cf_paid_df/df2 -- same 5 RoW regions on both      ####
+#### sides, built from the same row_lookup/pop_data_yr machinery, so   ####
+#### the country keys line up directly.                                ####
+#### Requires 9p run in this session (df2_collapsed).                  ####
+
+cf_paid_energy_df38 <- cf_paid_df38 %>%
+  inner_join(df2_collapsed %>% select(country, log_cf_energy), by = "country")
+
+cat(sprintf("\n[RoW-collapsed] CF_paid + CF_energy, joined: n = %d\n", nrow(cf_paid_energy_df38)))
+
+cor_paid_energy38 <- cor.test(cf_paid_energy_df38$log_cf_paid, cf_paid_energy_df38$log_cf_energy)
+cat(sprintf("[RoW-collapsed] Correlation, CF_paid vs. CF_energy: r = %.3f (p = %.3g, n = %d)\n",
+            cor_paid_energy38$estimate, cor_paid_energy38$p.value, nrow(cf_paid_energy_df38)))
+
+med2_paid38 <- parallel_mediation_decomp_paid(cf_paid_energy_df38, "log_gdp_pcap", "log_cf_paid", "log_cf_energy", "log_protein")
+cat(sprintf("\n[RoW-collapsed] Parallel dual-mediator (CF_paid + CF_energy): total = %.3f | direct = %.3f\n",
+            med2_paid38$total, med2_paid38$direct))
+cat(sprintf("  indirect via CF_paid   = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g)\n",
+            med2_paid38$indirect_paid, med2_paid38$prop_mediated_paid*100, med2_paid38$sobel_z_paid, med2_paid38$sobel_p_paid))
+cat(sprintf("  indirect via CF_energy = %.3f (%.1f%% of total, Sobel z = %.2f, p = %.3g)\n",
+            med2_paid38$indirect_energy, med2_paid38$prop_mediated_energy*100, med2_paid38$sobel_z_energy, med2_paid38$sobel_p_energy))
+
+acme_paid_stat38 <- function(d) {
+  fit_a <- lm(log_cf_paid ~ log_gdp_pcap, data = d)
+  fit_b <- lm(log_protein ~ log_gdp_pcap + log_cf_paid + log_cf_energy, data = d)
+  unname(coef(fit_a)["log_gdp_pcap"]) * unname(coef(fit_b)["log_cf_paid"])
+}
+acme_energy_stat_paidpair38 <- function(d) {
+  fit_a <- lm(log_cf_energy ~ log_gdp_pcap, data = d)
+  fit_b <- lm(log_protein ~ log_gdp_pcap + log_cf_paid + log_cf_energy, data = d)
+  unname(coef(fit_a)["log_gdp_pcap"]) * unname(coef(fit_b)["log_cf_energy"])
+}
+point_acme_paid38    <- acme_paid_stat38(cf_paid_energy_df38)
+point_acme_energy238 <- acme_energy_stat_paidpair38(cf_paid_energy_df38)
+boot_acme_paid38b    <- boot_stat(cf_paid_energy_df38, acme_paid_stat38, R)
+boot_acme_energy238  <- boot_stat(cf_paid_energy_df38, acme_energy_stat_paidpair38, R)
+
+report_boot(boot_acme_paid38b, point_acme_paid38,
+            sprintf("ACME via CF_paid (paid-labor pair), RoW-collapsed (n=%d)", nrow(cf_paid_energy_df38)),
+            sobel_p_for_comparison = med2_paid38$sobel_p_paid)
+report_boot(boot_acme_energy238, point_acme_energy238,
+            sprintf("ACME via CF_energy (paid-labor pair), RoW-collapsed (n=%d)", nrow(cf_paid_energy_df38)),
+            sobel_p_for_comparison = med2_paid38$sobel_p_energy)
+
+cat("\n#### What to look at ####\n")
+cat("Compare against section 3's n=33 result and against 9p section 4's n=38\n")
+cat("all-work pair. Four cells total now exist for CF_energy's ACME: {n=33,\n")
+cat("n=38} x {paired with CF_time, paired with CF_paid} -- if CF_energy stays\n")
+cat("significant (bootstrap CI excludes zero) in all four, that is about as\n")
+cat("robust as a single mediation finding gets in this dataset.\n")
