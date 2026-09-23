@@ -25,6 +25,13 @@ library(tidyverse)
 library(data.table)
 library(WDI)
 
+# Upstream objects (from 0-2): load the saved set if this is a fresh session.
+# Written by 2.2.save_objects_for_9.R; falls back to re-running 2.analyze_result.R.
+if (!exists("tradeoff_protein_allwork_consump")) {
+  saved <- "data/objects_for_9_2020.RData"
+  if (file.exists(saved)) load(saved) else source("2.analyze_result.R")
+}
+
 #### 1. Country-level CF and protein supply (EXIO-modeled countries only) ####
 # Total labor (household + economic, both genders) per 50 g of protein
 # actually consumed (domestic + import), and the matching protein supply.
