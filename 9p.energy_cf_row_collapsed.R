@@ -23,7 +23,7 @@
 #### 1. RoW-collapsed energy CF, mirroring script 9's row_collapsed exactly ####
 
 row_collapsed_energy <- tradeoff_protein_allwork_consump %>%
-  filter(is_row) %>%
+  filter(is_row, country %in% row_members_common) %>%   # same members as every RoW collapse (script 9)
   group_by(country) %>%
   summarise(hr_per_cap_day = sum(hr_per_cap_day, na.rm = TRUE),
             mj_per_cap_day = sum(mj_per_cap_day, na.rm = TRUE),

@@ -21,7 +21,11 @@ objects_for_9 <- c(
   "tradeoff_protein_allwork_consump",     # 9, 9b, 9k, 9m, 9p, 9r.mediation, 9s, ...
   "tradeoff_protein_allwork",             # 9r.mediation_domestic_consumption_cf
   "tradeoff_protein_econlabor_consump",   # 9t (CF_paid)
+  "tradeoff_kcal_allwork_consump",        # 9y (calorie block)
+  "tradeoff_kcal_econlabor_consump",      # 9y (calorie block)
   "summary_pro_df_long",                  # 9e, 9q
+  "summary_kcal_df_long",                 # 9y (protein density by origin)
+  "mass_origin_df",                       # 9y (tonnes per gram of protein by origin)
   "summary_food_df_long",
   "summary_food_df_long_with_ghd",        # 9u
   "effort_consumption_df",                # 9e, 9q, 9s

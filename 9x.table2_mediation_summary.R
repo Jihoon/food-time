@@ -9,7 +9,7 @@
 # CF_domestic-effort; two-mediator models CF_time + CF_energy and
 # CF_paid + CF_energy (one row per mediator). Each row at n = 33 (EXIO-only)
 # and n = 38 (RoW-collapsed) where the variant exists at that sample.
-# Columns: n, path a (GDP -> mediator elasticity, p), partial r (mediator ->
+# Columns: n, path a (GDP -> mediator elasticity, p), path b as partial r (mediator ->
 # protein, GDP fixed; single-mediator rows only), indirect effect a*b,
 # share of GDP's total effect, Sobel p, bootstrap 95% CI and two-sided p.
 #
@@ -29,9 +29,11 @@ if (!exists("tradeoff_protein_allwork_consump")) {
   saved <- "data/objects_for_9_2020.RData"            # written by 2.2.save_objects_for_9.R
   if (file.exists(saved)) load(saved) else source("2.analyze_result.R")
 }
-needed <- c("df", "df_collapsed", "df_domestic_econ", "df2", "df2_collapsed", "cf2_df", "cf2_df_collapsed",
-            "cf_paid_df33", "cf_paid_df38", "cf_paid_energy_df", "cf_paid_energy_df38", "partial_cor")
-if (!all(vapply(needed, exists, logical(1)))) {   # skip the slow prerequisites when re-running in the same session
+# Always re-source the prerequisites, so every row is built from the current upstream
+# objects. (An earlier "skip if the objects already exist" guard silently mixed pre- and
+# post-fix samples in one table when 0/2 were re-run but 9m/9p/9s/9t were not.) Set
+# SKIP_9X_PREREQ <- TRUE before sourcing only when you know nothing upstream has changed.
+if (!isTRUE(getOption("SKIP_9X_PREREQ", exists("SKIP_9X_PREREQ") && isTRUE(SKIP_9X_PREREQ)))) {
   for (f in c("9.capability_set_income_control.R",      # df, df_collapsed, wdi_latest, partial_cor(), mediation_decomp()
               "9e.domestic_econ_cf_mediation_test.R",   # df_domestic_econ (CF_paid,dom)
               "9m.energy_time_dual_mediator.R",         # df2 (CF_time + CF_energy, n = 33)
@@ -43,6 +45,22 @@ if (!all(vapply(needed, exists, logical(1)))) {   # skip the slow prerequisites 
     source(f)
   }
 }
+
+# Every n = 38 sample must describe the same five RoW regions (row_members_common, script 9):
+# identical protein and GDP per region across the CF variants.
+row_check <- bind_rows(
+  df_collapsed     %>% transmute(src = "CF_time",            country, g_protein_per_cap_day, gdp_pcap_ppp),
+  df2_collapsed    %>% transmute(src = "CF_energy",          country, g_protein_per_cap_day, gdp_pcap_ppp),
+  cf_paid_df38     %>% transmute(src = "CF_paid",            country, g_protein_per_cap_day, gdp_pcap_ppp),
+  cf2_df_collapsed %>% transmute(src = "CF_domestic-effort", country, g_protein_per_cap_day, gdp_pcap_ppp)
+) %>%
+  filter(grepl("^RoW", country)) %>%
+  group_by(country) %>%
+  summarise(n_src = n(), protein_spread = diff(range(g_protein_per_cap_day)),
+            gdp_spread = diff(range(gdp_pcap_ppp)), .groups = "drop")
+print(row_check)
+stopifnot(nrow(row_check) == 5, all(row_check$n_src == 4),
+          all(row_check$protein_spread < 1e-6), all(row_check$gdp_spread < 1e-6))
 
 set.seed(20260921)  # after the sourced scripts, which set their own seeds
 R_BOOT <- 5000
@@ -66,7 +84,7 @@ single_row <- function(d, m, variant, sample) {
   z <- a * b / sqrt(b^2 * sa^2 + a^2 * sb^2)
   bt <- boot_ci(d, function(s) coef(lm(reformulate(X, m), s))[[X]] * coef(lm(reformulate(c(X, m), Y), s))[[m]])
   tibble(model = "single", variant, mediator = variant, sample, n = nrow(d),
-         path_a = a, path_a_p = pa, partial_r = pc$r, partial_r_p = pc$p,
+         path_a = a, path_a_p = pa, path_b_partial_r = pc$r, path_b_partial_r_p = pc$p,
          indirect = a * b, share = a * b / tot, sobel_p = 2 * (1 - pnorm(abs(z))),
          boot_lo = bt[["lo"]], boot_hi = bt[["hi"]], boot_p = bt[["p"]])
 }
@@ -82,7 +100,7 @@ dual_rows <- function(d, m1, m2, name1, name2, sample) {
     z <- a * b / sqrt(b^2 * sa^2 + a^2 * sb^2)
     bt <- boot_ci(d, function(s) coef(lm(reformulate(X, m), s))[[X]] * coef(lm(reformulate(c(X, m1, m2), Y), s))[[m]])
     tibble(model = paste(name1, "+", name2), variant = paste(name1, "+", name2), mediator = mm[2], sample, n = nrow(d),
-           path_a = a, path_a_p = pa, partial_r = NA_real_, partial_r_p = NA_real_,
+           path_a = a, path_a_p = pa, path_b_partial_r = NA_real_, path_b_partial_r_p = NA_real_,
            indirect = a * b, share = a * b / tot, sobel_p = 2 * (1 - pnorm(abs(z))),
            boot_lo = bt[["lo"]], boot_hi = bt[["hi"]], boot_p = bt[["p"]])
   })
@@ -111,7 +129,7 @@ fmt_p <- function(p) ifelse(is.na(p), "—", ifelse(p < 0.001, "<0.001", sprintf
 print(tab %>%
         transmute(variant, mediator, sample, n,
                   path_a = sprintf("%.2f (%s)", path_a, fmt_p(path_a_p)),
-                  partial_r = ifelse(is.na(partial_r), "—", sprintf("%.2f (%s)", partial_r, fmt_p(partial_r_p))),
+                  path_b_partial_r = ifelse(is.na(path_b_partial_r), "—", sprintf("%.2f (%s)", path_b_partial_r, fmt_p(path_b_partial_r_p))),
                   indirect = sprintf("%.3f", indirect), share = sprintf("%.1f%%", 100 * share),
                   sobel_p = fmt_p(sobel_p),
                   boot_ci = sprintf("[%.3f, %.3f]", boot_lo, boot_hi), boot_p = fmt_p(boot_p)),

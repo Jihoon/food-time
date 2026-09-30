@@ -86,7 +86,7 @@ ggsave("results/partial_cf_vs_protein_control_gdp_by_gender.pdf", p_gender_parti
 
 gender_row_collapsed <- function(type_filter) {
   tradeoff_protein_allwork_consump %>%
-    filter(is_row, type == type_filter) %>%
+    filter(is_row, type == type_filter, country %in% row_members_common) %>%   # same members as script 9
     distinct(country, .keep_all = TRUE) %>%
     select(country, hr_per_cap_day, g_protein_per_cap_day) %>%
     inner_join(wdi_latest, by = c("country" = "iso3c")) %>%

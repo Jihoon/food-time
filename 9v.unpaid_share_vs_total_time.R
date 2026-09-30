@@ -73,3 +73,26 @@ cat("unpaid_share vs. GDP comes back positive (not negative), the claim in\n")
 cat("Conclusions/Future work is backwards on this dataset, consistent with\n")
 cat("the 'unpaid time is sticky' finding stated elsewhere -- fix the text,\n")
 cat("don't just soften it.\n")
+
+
+#### The paid-labor lens flatters the low-CF countries ####
+# Backs the claim in Findings/Discussion, "International Embodied Labor and
+# Trade": restricting to paid labor widens the rich/poor gap, because richer
+# countries carry a HIGHER unpaid share, so folding unpaid hours back in adds
+# proportionally more to their CF than to a poor country's. The implied
+# paid-only CF is the all-work CF net of its unpaid portion -- a decomposition
+# of the same total, not an independent estimate of CF_paid (whose scope
+# differs; see Table 1).
+lens_df <- share_df %>%
+  mutate(cf_paid_implied = hr_per_50g_protein_allwork * (1 - unpaid_share))
+
+cat("\n---- Paid-only vs all-work lens ----\n")
+print(lens_df %>% filter(country %in% c("IND", "USA")) %>%
+        select(country, hr_per_50g_protein_allwork, unpaid_share, cf_paid_implied) %>%
+        mutate(across(where(is.numeric), ~round(.x, 3))))
+
+ind <- lens_df %>% filter(country == "IND")
+usa <- lens_df %>% filter(country == "USA")
+cat(sprintf("IND/USA ratio: paid-only = %.1f | all-work = %.1f\n",
+            ind$cf_paid_implied / usa$cf_paid_implied,
+            ind$hr_per_50g_protein_allwork / usa$hr_per_50g_protein_allwork))

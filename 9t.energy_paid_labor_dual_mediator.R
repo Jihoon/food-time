@@ -106,7 +106,7 @@ report_boot(boot_acme_paid_single, point_acme_paid_single,
 #### as 9p/9s's RoW-collapse blocks, applied to CF_paid's source.       ####
 
 row_protein_paid_9t <- tradeoff_protein_econlabor_consump %>%
-  filter(is_row) %>%
+  filter(is_row, country %in% row_members_common) %>%   # same members as every RoW collapse (script 9)
   group_by(country) %>%
   summarise(hr_per_cap_day = sum(hr_per_cap_day, na.rm = TRUE),
             g_protein_per_cap_day = first(g_protein_per_cap_day),

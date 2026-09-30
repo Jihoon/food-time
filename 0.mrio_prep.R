@@ -197,34 +197,67 @@ df_ghd_gender = read_csv(paste0(path_GHD, "outputData/gender_split/TUS_only_M24_
   ))
 
 # Non-economic food time by gender
+#
+# BASIS (important): GHD's maleTotalHours/femaleTotalHours are hours per person OF
+# THAT SEX, while popTotalHours is the whole-population average -- across this file
+# (male + female) / popTotalHours = 1.99, i.e. each sex column is an average over its
+# own group. The EXIOBASE labor footprints this gets stacked onto are per TOTAL capita
+# (country_summary(): hours / population), and downstream code sums the hr_m and hr_f
+# rows to form the all-work total (9.capability_set_income_control.R). Left as-is, the
+# unpaid share of that total came out roughly twice its true per-capita value.
+#
+# Fix: rescale each country/subcategory's pair by popTotalHours / (male + female), so
+# the two rows are per-capita CONTRIBUTIONS that sum to GHD's own population average.
+# The male:female ratio is untouched, so gender comparisons are unaffected; the
+# weighting uses GHD's own sex shares rather than assuming 50:50. per_sex_value keeps
+# the original per-person figures for the gender analyses (9b, 9k), where hours per
+# woman against hours per man is the quantity of interest.
 df_ghd_gender = df_ghd_gender %>% rename(footprint_type = subcategory) %>%
+  mutate(sex_weight = ifelse((maleTotalHours + femaleTotalHours) > 0,
+                             popTotalHours / (maleTotalHours + femaleTotalHours), 0.5)) %>%
   # Pivot longer to have a column "type" with values "hr_m" and "hr_f", and a column "per_capita_value" with the corresponding hours
-  pivot_longer(cols = c("maleTotalHours", "femaleTotalHours"), names_to = "type", values_to = "per_capita_value") %>%
-  mutate(type = ifelse(type == "maleTotalHours", "hr_m", "hr_f")) %>% 
-  select(country, type, footprint_type, per_capita_value) %>%
-  drop_na() # Drop rows with NA values in per_capita_value
+  pivot_longer(cols = c("maleTotalHours", "femaleTotalHours"), names_to = "type", values_to = "per_sex_value") %>%
+  mutate(type = ifelse(type == "maleTotalHours", "hr_m", "hr_f"),
+         per_capita_value = per_sex_value * sex_weight) %>%
+  select(country, type, footprint_type, per_capita_value, per_sex_value) %>%
+  drop_na(per_capita_value) # Drop rows with NA values in per_capita_value
 
 # 4.2. Read the restaurant data ####
 # Source has empl_restaurants counts but a blank mean_hrs_restaurants for a few
 # countries (JPN, KOR, MNG, TUN as of this data vintage) -- drop those rather than
 # carrying NA per_capita_value through to the plots (df_water_energy below does the
 # same for its own source).
+# No gender split in this source, so the same per-person value applies to each sex:
+# per_sex_value = mean_hrs_restaurants for both hr_m and hr_f, which is the correct per-sex
+# reading. Converting to per-capita CONTRIBUTIONS (the basis the EXIOBASE footprints and the
+# 9-series summation use) means weighting each by its sex's population share, ~0.5, so the
+# two rows sum to the reported population average rather than to twice it.
+# The implicit assumption is that men and women spend equal time here; it affects the gender
+# decomposition of food-service time (ratio 1.0 by construction), never a total.
 df_restaurant = read_csv(paste0(path_GHD, "outputData/restaurants_accommodations_time.csv")) %>%
   select(country, hr_m = mean_hrs_restaurants, hr_f = mean_hrs_restaurants) %>%
   # stack df_restaurant twice with type "hr_m" and "hr_f" to match the structure of df_ghd_gender
-  pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_capita_value") %>%
-  mutate(footprint_type = "preparation_econ") %>%
-  select(country, type, footprint_type, per_capita_value) %>%
-  drop_na()
+  pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_sex_value") %>%
+  mutate(footprint_type = "preparation_econ",
+         per_capita_value = per_sex_value * 0.5) %>%
+  select(country, type, footprint_type, per_capita_value, per_sex_value) %>%
+  drop_na(per_capita_value)
 
 # 4.2b. Read water and firewood collection time (no gender split; apply the same value to both genders) ####
+# Same basis fix: no gender split, so per_sex_value is the same for both sexes, and each
+# row's per-capita contribution is that value times its sex's population share (~0.5).
+# Equal time by sex is a strong assumption for water and firewood collection specifically,
+# which time-use surveys show falls mainly on women; it biases the gender ratio for these
+# two categories toward parity, while leaving the per-capita totals exact.
 df_water_energy = read_csv("data/water_firewood.csv") %>%
   rename(water_non.econ = water_supply, energy_non.econ = forestry) %>%
-  pivot_longer(cols = c(water_non.econ, energy_non.econ), names_to = "footprint_type", values_to = "per_capita_value") %>%
-  mutate(hr_m = per_capita_value, hr_f = per_capita_value) %>%
-  select(country, footprint_type, hr_m, hr_f) %>%
+  pivot_longer(cols = c(water_non.econ, energy_non.econ), names_to = "footprint_type", values_to = "per_sex_value") %>%
+  mutate(hr_m = per_sex_value, hr_f = per_sex_value) %>%
+  select(country, footprint_type, per_sex_value, hr_m, hr_f) %>%
   pivot_longer(cols = c(hr_m, hr_f), names_to = "type", values_to = "per_capita_value") %>%
-  drop_na()
+  mutate(per_capita_value = per_capita_value * 0.5) %>%
+  select(country, type, footprint_type, per_capita_value, per_sex_value) %>%
+  drop_na(per_capita_value)
 
 # 4.2c. Read IEA residential energy end-use data — household energy for food-related appliances
 # (cooking, refrigeration/freezing, dish washing), GJ per capita, 2020.
@@ -262,3 +295,24 @@ df_iea_breakdown = df_iea_residential %>%
 df_ghd_combined = bind_rows(df_ghd_gender, df_restaurant, df_water_energy)
 
 cty_ghd = unique((df_ghd_gender %>% filter(footprint_type=="preparation_non.econ"))$country)
+
+#### Basis check for the stacked time series (run after 4.3) ####
+# Every per_capita_value stacked into df_ghd_combined must be a contribution to the
+# whole-population average, so that summing the hr_m and hr_f rows (as the 9-series
+# does) reproduces the population average rather than double-counting it. GHD's own
+# popTotalHours is the reference for the non-economic subcategories.
+local({
+  ref <- read_csv(paste0(path_GHD, "outputData/gender_split/TUS_only_M24_251017.csv"),
+                  show_col_types = FALSE) %>%
+    filter(subcategory %in% c("processing", "preparation", "growth_collection")) %>%
+    group_by(country) %>% summarise(ghd_pop_hours = sum(popTotalHours, na.rm = TRUE), .groups = "drop")
+  chk <- df_ghd_combined %>%
+    filter(grepl("non[.]econ$", footprint_type), !footprint_type %in% c("water_non.econ", "energy_non.econ")) %>%
+    group_by(country) %>% summarise(summed = sum(per_capita_value, na.rm = TRUE), .groups = "drop") %>%
+    inner_join(ref, by = "country") %>%
+    mutate(ratio = summed / ghd_pop_hours)
+  cat(sprintf("\n[basis check] unpaid food time, sum(hr_m + hr_f) / GHD popTotalHours: median %.3f, range %.3f-%.3f (n = %d)\n",
+              median(chk$ratio, na.rm = TRUE), min(chk$ratio, na.rm = TRUE), max(chk$ratio, na.rm = TRUE), nrow(chk)))
+  if (abs(median(chk$ratio, na.rm = TRUE) - 1) > 0.01)
+    warning("Unpaid time is not on a per-capita basis: sum of the gender rows should equal GHD's popTotalHours.")
+})

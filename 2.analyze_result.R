@@ -929,8 +929,25 @@ ggsave("results/footprint_nonfood_countries.pdf", p_combined_nonfood, width = 18
 # b/b_nonfood/b_import below all key off direct_ord's factor levels, so any
 # country dropped here (e.g. IDN, PRT, HRV, ..., TWN) automatically drops out
 # of the plot as an NA factor level rather than needing a separate filter.
-direct_ord = (summary_food_df_long_with_ghd %>%
-  filter(!is_row, type == "hr_f", country %in% partial_cty) %>%
+#
+# Ordered by the height of the female bar ABOVE zero -- the domestic and export
+# time a country's own population supplies. Imported time is drawn below zero,
+# so summing it in (as this did until 2026-09-24) ordered the axis by a net
+# quantity no reader can see in the figure. Non-food domestic and export time is
+# stacked into that same positive height (b_nonfood below), so it belongs in the
+# sum too; it is region-resolved, hence the region_to_iso_1to1 translation, the
+# same one b_nonfood uses.
+direct_ord_food = summary_food_df_long_with_ghd %>%
+  filter(!is_row, type == "hr_f", country %in% partial_cty,
+         footprint_type != "import_per_capita") %>%
+  transmute(country = as.character(country), per_capita_value)
+
+direct_ord_nonfood = summary_nonfood_df_long %>%
+  filter(!is_row, type == "hr_f", footprint_type != "import_per_capita") %>%
+  transmute(country = region_to_iso_1to1[as.character(exio_region)], per_capita_value) %>%
+  filter(country %in% unique(direct_ord_food$country))
+
+direct_ord = (bind_rows(direct_ord_food, direct_ord_nonfood) %>%
   group_by(country) %>%
   summarise(d = sum(per_capita_value, na.rm = TRUE)) %>%
   arrange(-d))$country
@@ -1147,6 +1164,17 @@ summary_pro_df_long = df_nutri[["protein"]] %>%
     footprint_type == "import_per_capita" ~ "import",
     .default = "domestic"
   ))
+
+# Food mass by origin (kg/cap/day), for 9y: paid hours and energy are attached per
+# tonne, so tonnes per gram of protein is the basket measure that matches them.
+# Edible products only (kcal_per_kg > 0), which drops live animals as the kcal
+# footprint does. Same domestic/import split as the protein and kcal summaries.
+mass_origin_df = country_summary(agg_country_footprint(
+    Matrix::Diagonal(x = as.numeric(coeff_cal$kcal_per_kg > 0)) %*% FABIO_y_hh)) %>%
+  transmute(country = as.character(country),
+            dom = domestic_per_capita / 1e6 / 365 * 1000,   # t/cap/yr -> kg/cap/day
+            imp = import_per_capita   / 1e6 / 365 * 1000) %>%
+  pivot_longer(c(dom, imp), names_to = "origin", values_to = "kg")
 
 # Region-resolved (49-row) counterparts, built the same way as
 # summary_food_region_df_long -- protein/kcal data has no RoW ambiguity of its

@@ -80,10 +80,14 @@ cat(sprintf("total = %.3f | direct (ADE) = %.3f | indirect via CF (ACME) = %.3f 
 cat("\n---- Path a for CF_2: does GDP predict domestic-effort CF? ----\n")
 print(summary(lm(log_cf2 ~ log_gdp_pcap, data = cf2_df)))
 
-cat("\n#### For comparison: CF_1, already established (script 9, unchanged) ####\n")
-cat("path a:   a1 = -0.52 (n=33) / -0.46 (n=38, RoW-collapsed)\n")
-cat("path b:   partial r = -0.13 (p=0.45, n=38); mediated share 16-24%, Sobel p>0.3 throughout\n")
-cat("\nWhat to look at: does CF_2's path a differ meaningfully from CF_1's -0.52?\n")
+# Hardcoded, so it goes stale silently whenever CF_1 is re-estimated -- it did
+# exactly that through the 2026-09-24 per-sex basis fix, still printing the old
+# -0.52/-0.46 as "already established" against freshly computed CF_2 numbers.
+# Refreshed from that run; re-check it against script 9 whenever CF_1 moves.
+cat("\n#### For comparison: CF_1, as of the 2026-09-24 basis fix (script 9) ####\n")
+cat("path a:   a1 = -0.51 (n=33) / -0.47 (n=38, RoW-collapsed)\n")
+cat("path b:   partial r = -0.15 (p=0.37, n=38); mediated share 21-33%, Sobel p>0.25 throughout\n")
+cat("\nWhat to look at: does CF_2's path a differ meaningfully from CF_1's -0.51?\n")
 cat("A much weaker CF_2-vs-income relationship would say income buys efficiency\n")
 cat("mostly by mobilizing OTHER countries' labor (importing), not by making a\n")
 cat("country's own labor more productive -- a real, reportable distinction, not\n")
@@ -112,7 +116,7 @@ row_domestic_effort_region_9s <- effort_consumption_df %>%
   summarise(hr_per_cap_day_domestic_effort = sum(per_capita_value, na.rm = TRUE), .groups = "drop")
 
 row_domestic_effort_9s <- row_lookup %>%
-  filter(grepl("RoW", exio_region)) %>%
+  filter(grepl("RoW", exio_region), country %in% row_members_common) %>%   # same members as script 9
   inner_join(row_domestic_effort_region_9s, by = "exio_region")
 
 row_protein_9s <- tradeoff_protein_allwork_consump %>%

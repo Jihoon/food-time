@@ -230,8 +230,34 @@ row_full_pop <- row_lookup %>%
   group_by(exio_region) %>%
   summarise(pop_total_region = sum(population, na.rm = TRUE), .groups = "drop")
 
+# One member list for every RoW-collapsed variant (9, 9b, 9p, 9s, 9t). Each
+# script used to keep the members with data in its own source, so the all-work
+# regions averaged 3-7 countries (the ones with time-use data, 18-36% of the
+# region's population) while the paid-labor regions averaged nearly all of
+# them: the n = 38 rows of Table 2 described different populations, with
+# different protein and GDP. A member enters only if every source has it.
+row_positive <- function(tbl, col = "hr_per_cap_day", type_filter = NULL) {
+  t <- tbl %>% filter(is_row)
+  if (!is.null(type_filter)) t <- t %>% filter(type == type_filter)
+  t %>%
+    group_by(country) %>%
+    summarise(v = sum(.data[[col]], na.rm = TRUE), p = first(g_protein_per_cap_day), .groups = "drop") %>%
+    filter(v > 0, p > 0) %>%
+    pull(country)
+}
+row_members_common <- Reduce(intersect, list(
+  row_positive(tradeoff_protein_allwork_consump),                          # CF_time (9)
+  row_positive(tradeoff_protein_allwork_consump, "mj_per_cap_day"),        # CF_energy (9p)
+  row_positive(tradeoff_protein_allwork_consump, type_filter = "hr_f"),    # gender split (9b)
+  row_positive(tradeoff_protein_allwork_consump, type_filter = "hr_m"),
+  row_positive(tradeoff_protein_econlabor_consump),                        # CF_paid (9t)
+  wdi_latest %>% filter(!is.na(gdp_pcap_ppp)) %>% pull(iso3c),
+  pop_data_yr %>% filter(!is.na(population), population > 0) %>% pull(iso3c)
+))
+cat(sprintf("\nRoW members common to every CF source: %d countries\n", length(row_members_common)))
+
 row_collapsed <- tradeoff_protein_allwork_consump %>%
-  filter(is_row) %>%
+  filter(is_row, country %in% row_members_common) %>%
   group_by(country) %>%
   summarise(hr_per_cap_day = sum(hr_per_cap_day, na.rm = TRUE),
             g_protein_per_cap_day = first(g_protein_per_cap_day),
