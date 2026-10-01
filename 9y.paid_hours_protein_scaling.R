@@ -210,8 +210,8 @@ cat("Wrote results/hours_kcal_protein.csv\n")
 #### Paid hours and energy by origin: which side fails to follow food supply? ####
 # Split paid food-sector hours and embodied energy per capita by the origin of the
 # final food product (domestically produced vs imported), the same split as protein
-# (summary_pro_df_long, cat domestic/import). This is the product-origin dimension,
-# not where each hour was worked. EXIO-only sample (n = 33).
+# (summary_pro_df_long, cat domestic/import) and food mass (mass_origin_df). This is
+# the product-origin dimension, not where each hour was worked. EXIO-only sample (n = 33).
 #   1. Does each origin's paid hours / energy follow that origin's protein, net of GDP?
 #      (log H_o ~ log P_o + log GDP; elasticity ~ 1 = follows, ~ 0 = does not)
 #   2. Which origin carries the cross-country spread in total paid hours / energy at a
@@ -220,13 +220,17 @@ cat("Wrote results/hours_kcal_protein.csv\n")
 #   3. Does the import share of protein explain paid hours / energy per capita,
 #      net of GDP and total protein?
 
-origin_long <- summary_food_df_long %>%
-  filter(type %in% c("hr_m", "hr_f", "en"),
-         footprint_type %in% c("domestic_per_capita", "import_per_capita")) %>%
-  mutate(country = as.character(country),
-         origin  = ifelse(footprint_type == "domestic_per_capita", "dom", "imp"),
-         what    = ifelse(type == "en", "energy", "paid"),
-         value   = ifelse(type == "en", per_capita_value / 365, per_capita_value)) %>%  # MJ or hr / cap / day
+# Split by the origin of the FINAL product (effort_consumption_df's protein_source),
+# summing over where the effort itself happened, food sectors only (the scope of
+# CF_paid). An earlier version took summary_food_df_long, whose domestic/import
+# split is by where the work happened (2.analyze_result.R, section 1.3): totals
+# matched, but hours were set against protein and mass split the other way.
+origin_long <- effort_consumption_df %>%
+  mutate(country = region_to_iso_1to1[as.character(exio_region)]) %>%
+  filter(!is.na(country), sector == "food", type %in% c("hr_m", "hr_f", "en")) %>%
+  mutate(origin = ifelse(protein_source == "domestic", "dom", "imp"),
+         what   = ifelse(type == "en", "energy", "paid"),
+         value  = ifelse(type == "en", per_capita_value / 365, per_capita_value)) %>%  # MJ or hr / cap / day
   group_by(country, what, origin) %>%
   summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
 
