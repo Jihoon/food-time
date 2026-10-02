@@ -110,3 +110,18 @@ cat(sprintf("logit(foreign share) on log GDP per capita: slope = %.3f, SE = %.3f
             s[1], s[2], s[4], nrow(foreign_share)))
 r_share <- cor.test(foreign_share$foreign_share_paid, foreign_share$log_gdp_pcap)
 cat(sprintf("Pearson r (share, log GDP) = %.3f, p = %.3g\n", r_share$estimate, r_share$p.value))
+
+# Same cut for embodied energy: is energy drawn from abroad as much as labor?
+foreign_share_en <- df_mosaic_energy_9q %>%
+  group_by(country, effort_origin) %>%
+  summarise(en = sum(gj_per_cap_day, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = effort_origin, values_from = en, names_prefix = "en_") %>%
+  mutate(foreign_share_energy = en_import / (en_domestic + en_import)) %>%
+  inner_join(comp_gdp %>% select(country, log_gdp_pcap), by = "country")
+r_share_en <- cor.test(foreign_share_en$foreign_share_energy, foreign_share_en$log_gdp_pcap)
+s_en <- summary(lm(qlogis(foreign_share_energy) ~ log_gdp_pcap, data = foreign_share_en))$coefficients["log_gdp_pcap", ]
+cat(sprintf("\nForeign share of embodied energy: median = %.3f, Pearson r (share, log GDP) = %.3f, p = %.3g, n = %d\n",
+            median(foreign_share_en$foreign_share_energy), r_share_en$estimate, r_share_en$p.value,
+            nrow(foreign_share_en)))
+cat(sprintf("logit(foreign share) on log GDP: energy slope = %.3f (SE %.3f) vs hours %.3f (SE %.3f)\n",
+            s_en[1], s_en[2], s[1], s[2]))

@@ -144,7 +144,11 @@ imp_share <- df_mosaic_9q %>%
               names_prefix = "g_") %>%
   mutate(import_share = g_import_per_capita / (g_domestic_per_capita + g_import_per_capita))
 
-meaningful <- imp_share %>% filter(import_share > 0.02) %>% pull(country)
+# A 2% floor used to sit here. It removed only India (imports 1.35% of protein supply, a
+# large absolute flow; import/domestic ratio 0.27, not an extreme value), the poorest
+# country in the sample, which biases every income-gradient test below. Kept as a
+# guard against a literal zero only.
+meaningful <- imp_share %>% filter(import_share > 0) %>% pull(country)
 comp_filtered <- comparison %>% filter(country %in% meaningful)
 
 cat(sprintf("\n%d of %d countries have >2%% of protein supply from imports; ratio summary uses those.\n",

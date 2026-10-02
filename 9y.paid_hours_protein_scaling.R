@@ -421,7 +421,7 @@ prem <- eff_stream %>%
   pivot_wider(names_from = origin, values_from = c(per_g, per_t)) %>%
   mutate(ratio_g = per_g_imp / per_g_dom, ratio_t = per_t_imp / per_t_dom) %>%
   inner_join(imp_share_9y, by = "country") %>%
-  filter(import_share > 0.02) %>%
+  filter(import_share > 0) %>%                      # no 2% floor: it only removed India (see 9q)
   inner_join(wdi_latest %>% select(country = iso3c, gdp_pcap_ppp), by = "country") %>%
   filter(is.finite(ratio_g), is.finite(ratio_t))
 
@@ -440,9 +440,68 @@ prem_tab <- prem %>%
   }) %>% ungroup()
 cat("\n---- Import/domestic intensity ratio: per 50 g protein (as 9q) vs per tonne of food ----\n")
 print(prem_tab, n = Inf, width = Inf)
-cat("(per-gram columns should reproduce 9q: time 26 of 42 above 1, slope 0.77, p = 0.009)\n")
+cat("(per-gram columns should match 9q's stream ratios, now including India)\n")
 cat("\nRead: per-tonne ratio near 1 with no income slope -> rich countries' import premium per gram is",
     "\n      diet composition (protein-poor food by the tonne); per-tonne ratio above 1 and rising with",
     "\n      income -> imported food itself carries more hours or energy per tonne.\n")
+# Which side drives the per-tonne ratio across countries? log ratio = log imp - log dom, so
+# its variance splits into a domestic part (var(dom) - cov) and an import part (var(imp) - cov).
+cat("\n---- Per-tonne ratio: share of its cross-country variance from the domestic vs the import side ----\n")
+print(prem %>% group_by(what) %>%
+        summarise(n = n(),
+                  dom_max_min = max(per_t_dom) / min(per_t_dom), imp_max_min = max(per_t_imp) / min(per_t_imp),
+                  domestic_share = (var(log(per_t_dom)) - cov(log(per_t_imp), log(per_t_dom))) / var(log(ratio_t)),
+                  import_share   = (var(log(per_t_imp)) - cov(log(per_t_imp), log(per_t_dom))) / var(log(ratio_t)),
+                  .groups = "drop") %>%
+        mutate(across(where(is.double), ~ round(.x, 2))))
 write_csv(prem, "results/import_premium_per_gram_vs_per_tonne.csv")
 cat("Wrote results/import_premium_per_gram_vs_per_tonne.csv (per-country ratios)\n")
+
+
+#### Does the elasticity of hours / energy per person on protein differ by income? ####
+# Table 3's specification applied to Table 4: log H ~ log P * log GDP. Reports e at India's
+# and the Netherlands' income (delta method), the interaction's t-test p and its case-
+# resampling bootstrap (the Methods' check for interactions at small n), and the countries
+# with the largest influence (Cook's distance) on each interaction. Draft, low-income
+# section footnote: no difference is significant; the lowest t-test p (paid hours, ~0.07)
+# does not hold up under the bootstrap.
+
+GDP_AT_9Y <- c(7187, 64862)
+inc_row <- function(d, lh, what, sample, R = R_BOOT) {
+  d <- d %>% mutate(lh = lh) %>% filter(is.finite(lh), is.finite(.data[[Y]]), is.finite(.data[[X]]))
+  fml <- as.formula(paste("lh ~", Y, "*", X)); int <- paste0(Y, ":", X)
+  fit <- lm(fml, d); s <- summary(fit)$coefficients; V <- vcov(fit)
+  e_at <- function(g) {
+    x <- log(g); est <- s[Y, 1] + s[int, 1] * x
+    se <- sqrt(V[Y, Y] + x^2 * V[int, int] + 2 * x * V[Y, int])
+    sprintf("%.2f (%s)", est, fmt_p(2 * pt(-abs(est / se), fit$df.residual)))
+  }
+  b <- replicate(R, coef(lm(fml, d[sample.int(nrow(d), replace = TRUE), ]))[[int]])
+  cook <- sort(setNames(cooks.distance(fit), d$country), decreasing = TRUE)[1:3]
+  tibble(what, sample, n = nrow(d), e_india = e_at(GDP_AT_9Y[1]), e_netherlands = e_at(GDP_AT_9Y[2]),
+         interaction = sprintf("%.2f", s[int, 1]), t_p = fmt_p(s[int, 4]),
+         boot_ci = sprintf("[%.2f, %.2f]", quantile(b, .025, na.rm = TRUE), quantile(b, .975, na.rm = TRUE)),
+         boot_p = fmt_p(2 * min(mean(b < 0, na.rm = TRUE), mean(b > 0, na.rm = TRUE))),
+         most_influential = paste(sprintf("%s %.2f", names(cook), cook), collapse = ", "))
+}
+inc_rows <- function(d_all, d_paid, d_en, sample) {
+  a <- d_all %>% select(country, log_cf, all_of(c(Y, X))) %>%
+    inner_join(d_paid %>% select(country, log_cf_paid), by = "country") %>%
+    filter(if_all(where(is.numeric), is.finite))
+  P <- exp(a[[Y]]); h_all <- exp(a$log_cf) * P / 50; h_paid <- exp(a$log_cf_paid) * P / 50
+  e <- d_en %>% select(country, log_cf_energy, all_of(c(Y, X)))
+  bind_rows(inc_row(a, log(h_all), "all work", sample),
+            inc_row(a, log(h_all - h_paid), "unpaid", sample),
+            inc_row(a, log(h_paid), "paid", sample),
+            inc_row(e, e$log_cf_energy + e[[Y]] - log(50), "energy", sample))
+}
+set.seed(20261002)
+inc_tab <- bind_rows(inc_rows(df, cf_paid_df33, df2, "EXIO-only"),
+                     inc_rows(df_collapsed, cf_paid_df38, df2_collapsed, "RoW-collapsed"))
+cat("\n---- Elasticity of hours / energy per person on protein, by income (net of GDP) ----\n")
+print(inc_tab, n = Inf, width = Inf)
+cat("\nRead: e at each income with delta-method p; 'interaction' tests whether e changes with income.",
+    "\n      Trust the bootstrap over the t-test at this n; 'most_influential' shows which countries",
+    "\n      the interaction rests on (Cook's distance).\n")
+write_csv(inc_tab, "results/hours_protein_elasticity_by_income.csv")
+cat("Wrote results/hours_protein_elasticity_by_income.csv\n")
