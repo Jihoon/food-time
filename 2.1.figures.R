@@ -272,16 +272,47 @@ mosaic_label_layout = function(df, label_col, x_span, y_span, gap_frac, pad_frac
     ungroup()
 }
 
+# Rendered width of the widest label, in inches, for a ggplot `size` (mm).
+# Measured rather than estimated from character counts, so it stays right for
+# any label string.
+label_width_in = function(labels, size_mm) {
+  if (length(labels) == 0) return(0)
+  max(vapply(unique(labels), function(s)
+    grid::convertWidth(grid::grobWidth(grid::textGrob(
+      s, gp = grid::gpar(fontsize = size_mm * .pt, fontface = "bold"))),
+      "in", valueOnly = TRUE), numeric(1)))
+}
+
+# Gutters wide enough for the labels they actually hold. A gutter set as a
+# fixed fraction of the data range clips as soon as the range is wide or the
+# strings are long ("5.7 GJ/yr" at a 0-150 g/cap/day axis), because label text
+# has a fixed physical width while the fraction does not. So: measure the
+# widest label on each side, express it as a fraction k of the facet's panel
+# width, and solve expansion L = k_L(1+L+R), R = k_R(1+L+R) for the multiples
+# that give exactly that much room.
+mosaic_gutter = function(lab_df, label_size, ncol, fig_width, lead_in = 0.12) {
+  panel_w = max((fig_width - 1.5) / ncol - 0.1, 1)   # minus axis furniture
+  k = vapply(c("Domestic", "Import"), function(side) {
+    labs = lab_df$lab[lab_df$source == side]
+    if (length(labs) == 0) 0 else (label_width_in(labs, label_size) + lead_in) / panel_w
+  }, numeric(1))
+  if (sum(k) > 0.8) k = k * 0.8 / sum(k)   # never let the gutters crowd out the mosaic
+  unname(k / (1 - sum(k)))
+}
+
 # vline_data = NULL omits the reference line entirely (the SI panels below span
 # every country, where a single-country reference adds clutter rather than
 # context). gap_frac tracks label_size: smaller type needs less vertical room.
+# fig_width is the width in inches this plot is given on the page -- it sets
+# how much data range a gutter of a given physical width costs.
 mosaic_panel = function(df, label_col, ylabel, title, vline_data = NULL, xintercept = NA,
                         ncol = 3, label_size = 5, gap_frac = 0.085, pad_frac = 0.05,
-                        gutter = c(0.32, 0.34), base = FIG_BASE) {
+                        fig_width = 13.4, base = FIG_BASE) {
   lab_df = mosaic_label_layout(df, label_col,
                                x_span = max(df$xmax, na.rm = TRUE),
                                y_span = max(df$ymax, na.rm = TRUE),
                                gap_frac = gap_frac, pad_frac = pad_frac)
+  gutter = mosaic_gutter(lab_df, label_size, ncol, fig_width)
   g = ggplot(df) +
     geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill_grp),
               color = "white", linewidth = 0.4)
@@ -303,24 +334,33 @@ mosaic_panel = function(df, label_col, ylabel, title, vline_data = NULL, xinterc
               aes(x = x_lab, y = y_lab, label = lab, color = fill_grp, hjust = h_just),
               size = label_size, fontface = "bold") +
     scale_color_manual(values = mosaic_text_colors, guide = "none") +
-    # Room for the label gutters on both sides of every facet. The energy
-    # mosaic's labels ("5.7 GJ/yr") are the long ones that set this.
-    scale_x_continuous(expand = expansion(mult = gutter)) +
+    # The gutters push the axis below zero; protein supply has no negative
+    # values, so no break is drawn there.
+    scale_x_continuous(expand = expansion(mult = gutter),
+                       breaks = function(lims) {
+                         b = scales::extended_breaks()(c(0, max(lims)))
+                         b[b >= 0 & b <= max(lims)]
+                       }) +
     facet_wrap(~country, ncol = ncol) +
     scale_fill_manual(values = mosaic_fill_colors, name = "") +
     labs(x = "Protein supply (g/cap/day)", y = ylabel, title = title) +
     theme_fig(base = base, legend_position = "bottom")
 }
 
+# The two mosaics sit side by side with a 1/12-width spacer, so each is
+# 1/(2 + 1/12) of the saved figure width.
+FIG2_WIDTH = 28
+fig2_panel_width = FIG2_WIDTH / (2 + 1/12)
+
 p_fig2_time = mosaic_panel(
   df_mosaic, "label_min", "Time conversion factor (min / g protein)",
   "Daily time embodied in domestic/imported protein provisioning",
-  vline_data = vline_df, xintercept = protein_max)
+  vline_data = vline_df, xintercept = protein_max, fig_width = fig2_panel_width)
 
 p_fig2_energy = mosaic_panel(
   df_mosaic_energy, "label_gj", "Energy conversion factor (MJ / g protein)",
   "Yearly energy embodied in domestic/imported protein provisioning",
-  vline_data = vline_df, xintercept = protein_max_energy)
+  vline_data = vline_df, xintercept = protein_max_energy, fig_width = fig2_panel_width)
 
 # Both panels share the fill scale, so guides="collect" leaves one centered
 # bottom legend. plot_spacer() opens the gap: each mosaic spans 3 facet columns
@@ -329,7 +369,7 @@ fig2 = (p_fig2_time | plot_spacer() | p_fig2_energy) +
   plot_layout(guides = "collect", widths = c(1, 1/12, 1)) &
   theme(legend.position = "bottom")
 
-ggsave(file.path(fig_dir, "fig2_protein_mosaic.pdf"), fig2, width = 28, height = 12)
+ggsave(file.path(fig_dir, "fig2_protein_mosaic.pdf"), fig2, width = FIG2_WIDTH, height = 12)
 
 
 #### SI: the same two mosaics for every directly-modelled country ####
@@ -363,10 +403,13 @@ si_countries = nlevels(df_si_mosaic_time$country)
 si_ncol      = 6
 si_height    = ceiling(si_countries / si_ncol) * 3.6 + 2
 
-si_mosaic = function(df, label_col, ylabel, title, ncol = si_ncol, label_size = 3.5) {
+SI_WIDTH = 26
+
+si_mosaic = function(df, label_col, ylabel, title, ncol = si_ncol, label_size = 3.5,
+                     fig_width = SI_WIDTH) {
   mosaic_panel(df, label_col, ylabel, title,
                ncol = ncol, label_size = label_size, gap_frac = 0.07, pad_frac = 0.04,
-               gutter = c(0.30, 0.32), base = 16)
+               fig_width = fig_width, base = 16)
 }
 
 si_title_time   = "Daily time embodied in domestic/imported protein provisioning"
@@ -383,9 +426,9 @@ p_si_mosaic_energy = si_mosaic(
   paste0(si_title_energy, ", all modelled countries"))
 
 ggsave(file.path(fig_dir, "figS1_protein_mosaic_time_all.pdf"), p_si_mosaic_time,
-       width = 26, height = si_height, limitsize = FALSE)
+       width = SI_WIDTH, height = si_height, limitsize = FALSE)
 ggsave(file.path(fig_dir, "figS2_protein_mosaic_energy_all.pdf"), p_si_mosaic_energy,
-       width = 26, height = si_height, limitsize = FALSE)
+       width = SI_WIDTH, height = si_height, limitsize = FALSE)
 
 
 #### SI, Word edition: the same mosaics split across page-sized chunks ####
@@ -419,7 +462,7 @@ si_docx_pages = unlist(recursive = FALSE, lapply(
     list(plot = si_mosaic(spec$df %>% filter(country %in% isos) %>%
                             mutate(country = droplevels(country)),
                           spec$col, spec$ylab, spec$title,
-                          ncol = SI_DOCX_NCOL, label_size = 3.8),
+                          ncol = SI_DOCX_NCOL, label_size = 3.8, fig_width = si_chunk_w),
          w = si_chunk_w,
          h = ceiling(length(isos) / SI_DOCX_NCOL) * 3.6 + 2,
          caption = sprintf("Figure %s (%d of %d). %s. Countries %d-%d of %d, ordered by domestic time per capita.",
