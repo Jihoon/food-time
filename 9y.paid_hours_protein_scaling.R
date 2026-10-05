@@ -505,3 +505,56 @@ cat("\nRead: e at each income with delta-method p; 'interaction' tests whether e
     "\n      the interaction rests on (Cook's distance).\n")
 write_csv(inc_tab, "results/hours_protein_elasticity_by_income.csv")
 cat("Wrote results/hours_protein_elasticity_by_income.csv\n")
+
+
+#### Path a by kind of hours: which part of CF_time falls with income? ####
+# CF_time falls with income (path a). CF_time = (unpaid + paid) / P, so its fall can
+# come from household time per gram, market time per gram, or both. For each part,
+# log CF_k ~ log GDP gives its own path a; log H_k ~ log GDP and log P ~ log GDP
+# split that into hours per person falling and protein rising (b_CF = b_H - b_P).
+# Contribution to CF_time's slope: dlog CF_time = s_u dlog CF_u + s_p dlog CF_p,
+# with s the sample-mean shares of unpaid and paid hours in all-work hours, so
+# contribution_k = s_k * b_k / b_time (the two add to ~1; not exact because shares vary).
+#   unpaid contribution near 1 -> growth shortens the household's time per gram
+#   paid contribution near 1   -> growth shortens the market's time per gram
+
+path_a_split <- function(d_all, d_paid, sample) {
+  d <- inner_join(d_all %>% select(country, log_cf, all_of(c(X, Y))),
+                  d_paid %>% select(country, log_cf_paid), by = "country") %>%
+    filter(if_all(where(is.numeric), is.finite))
+  P <- exp(d[[Y]])
+  h <- tibble(all_work = exp(d$log_cf) * P / 50, paid = exp(d$log_cf_paid) * P / 50) %>%
+    mutate(unpaid = all_work - paid)
+  stopifnot(all(h$unpaid > 0))
+  sl <- function(y) {
+    s <- summary(lm(y ~ d[[X]]))$coefficients[2, ]
+    c(b = s[["Estimate"]], se = s[["Std. Error"]], p = s[["Pr(>|t|)"]])
+  }
+  b_P <- sl(d[[Y]])
+  shares <- c(unpaid = mean(h$unpaid / h$all_work), paid = mean(h$paid / h$all_work))
+  b_time <- sl(log(h$all_work / P * 50))[["b"]]
+  map_dfr(c("all_work", "unpaid", "paid"), function(k) {
+    cf <- sl(log(h[[k]] / P * 50)); hh <- sl(log(h[[k]]))
+    tibble(sample, n = nrow(d), hours = k,
+           mean_share = if (k == "all_work") 1 else shares[[k]],
+           path_a_cf = cf[["b"]], se_cf = cf[["se"]], p_cf = cf[["p"]],
+           slope_hours_per_person = hh[["b"]], p_hours = hh[["p"]],
+           slope_protein = b_P[["b"]],
+           contribution = if (k == "all_work") 1 else shares[[k]] * cf[["b"]] / b_time)
+  })
+}
+
+pa_tab <- bind_rows(path_a_split(df, cf_paid_df33, "EXIO-only"),
+                    path_a_split(df_collapsed, cf_paid_df38, "RoW-collapsed"))
+cat("\n---- Path a by kind of hours: log CF_k and log hours per person on log GDP ----\n")
+print(pa_tab %>%
+        transmute(sample, n, hours, share = sprintf("%.2f", mean_share),
+                  `path a (CF)` = sprintf("%.2f (SE %.2f, %s)", path_a_cf, se_cf, fmt_p(p_cf)),
+                  `hours/person slope` = sprintf("%.2f (%s)", slope_hours_per_person, fmt_p(p_hours)),
+                  `protein slope` = sprintf("%.2f", slope_protein),
+                  `share of CF_time's fall` = sprintf("%.0f%%", 100 * contribution)),
+      n = Inf, width = Inf)
+cat("\nRead: path a (CF) = hours/person slope - protein slope. 'share of CF_time's fall' says how much",
+    "\n      of the income gradient in CF_time comes from household vs market time per gram.\n")
+write_csv(pa_tab, "results/path_a_by_kind_of_hours.csv")
+cat("Wrote results/path_a_by_kind_of_hours.csv\n")
