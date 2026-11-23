@@ -80,8 +80,14 @@ theme_fig = function(base = FIG_BASE, legend_position = "top", angle_x = 0) {
 
 #### Figure 1: time footprint by country and gender ####
 
+# A thin white line at y = 0, drawn over the bars and under the dots, opens a
+# small empty gap between the positive (domestic + export) and negative (import)
+# stacks. It only masks pixels at zero; bar heights and both axes are unchanged.
+FIG1_ZERO_GAP = 1.6   # ggplot linewidth units; raise for a wider gap
+
 p_fig1_f = plot_countries(b_direct %>% filter(type == "hr_f"),
                           "Female time (hr/cap/day)", "") +
+  geom_hline(yintercept = 0, color = "white", linewidth = FIG1_ZERO_GAP) +
   geom_point(data = pro_direct, aes(x = country, y = pro_per_cap_day * pro_scale_direct),
              color = "black", size = 3, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(y_min_direct, y_max_direct),
@@ -89,6 +95,7 @@ p_fig1_f = plot_countries(b_direct %>% filter(type == "hr_f"),
 
 p_fig1_m_base = plot_countries(b_direct %>% filter(type == "hr_m"),
                                "Male time (hr/cap/day)", "") +
+  geom_hline(yintercept = 0, color = "white", linewidth = FIG1_ZERO_GAP) +
   geom_point(data = und_direct, aes(x = country, y = undernourishment_pct * und_scale_direct),
              color = "black", size = 3, inherit.aes = FALSE) +
   scale_y_continuous(limits = c(y_min_direct, y_max_direct),
@@ -137,7 +144,7 @@ fig1[[1]] <- fig1[[1]] + theme(axis.text.x = element_blank(), axis.ticks.x = ele
                                axis.title.x = element_blank())
 fig1[[2]] <- fig1[[2]] + theme(axis.ticks.x = element_line())
 
-ggsave(file.path(fig_dir, "fig1_time_footprint.pdf"), fig1, width = 20, height = 14)
+ggsave(file.path(fig_dir, "fig1_time_footprint_gap.pdf"), fig1, width = 20, height = 14)
 
 
 #### Figure 1b: same bars, collapsed to unpaid / paid x food x trade direction ####
@@ -199,6 +206,7 @@ plot_fig1b_panel = function(gender, ylabel, dots, dot_col, dot_scale, sec_name) 
              stat = "identity", position = "stack") +
     geom_point(data = dots, aes(x = country, y = .data[[dot_col]] * dot_scale),
                color = "black", size = 3, inherit.aes = FALSE) +
+    geom_hline(yintercept = 0, color = "white", linewidth = FIG1_ZERO_GAP) +
     scale_fill_manual(values = fig1b_colors, name = "Footprint type", drop = FALSE) +
     scale_y_continuous(limits = c(y_min_direct, y_max_direct),
                        sec.axis = sec_axis(~ . / dot_scale, name = sec_name)) +
@@ -220,7 +228,7 @@ fig1b[[1]] <- fig1b[[1]] + theme(axis.text.x = element_blank(), axis.ticks.x = e
                                  axis.title.x = element_blank())
 fig1b[[2]] <- fig1b[[2]] + theme(axis.ticks.x = element_line())
 
-ggsave(file.path(fig_dir, "fig1b_time_footprint_simple.pdf"), fig1b, width = 20, height = 13)
+ggsave(file.path(fig_dir, "fig1b_time_footprint_simple_gap.pdf"), fig1b, width = 20, height = 13)
 
 
 #### Figure 2: domestic vs. imported protein mosaic (time and energy) ####
